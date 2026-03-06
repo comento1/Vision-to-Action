@@ -70,6 +70,8 @@ export default function App() {
   const [concretizeChatReply, setConcretizeChatReply] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isGuideLoading, setIsGuideLoading] = useState(false);
+  const [reasonExpanded, setReasonExpanded] = useState(false);
+  const REASON_PREVIEW_LEN = 320;
 
   const formatGuideText = (text: string) => {
     const t = String(text || "").trim();
@@ -118,9 +120,18 @@ export default function App() {
     loadGuides();
   }, [currentStep, selectedTask]);
   useEffect(() => {
-    // 페이지 이동 시 항상 상단으로 이동
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [currentStep]);
+  useEffect(() => {
+    setReasonExpanded(false);
+  }, [selectedTask?.id]);
+
+  // 대시보드 진입 시 작성 내역 미리 로드 → 버튼 조건부 표시 및 클릭 시 즉시 모달
+  const hasProfile = Boolean(profile.org?.trim() && profile.name?.trim() && profile.title?.trim());
+  useEffect(() => {
+    if (currentStep !== 'dashboard' || !hasProfile) return;
+    loadWrittenEntries(profile);
+  }, [currentStep, profile.org, profile.name, profile.title]);
 
   const loadTasks = async () => {
     setIsLoadingTasks(true);
@@ -363,6 +374,8 @@ export default function App() {
           useCORS: true,
           allowTaint: true,
           logging: false,
+          height: element.scrollHeight,
+          windowHeight: element.scrollHeight,
           onclone: (_doc, clonedEl) => {
             const style = _doc.createElement("style");
             style.textContent = pdfSafeCss;
@@ -370,6 +383,8 @@ export default function App() {
             const root = clonedEl as HTMLElement;
             root.style.setProperty("color", "#0f172a");
             root.style.setProperty("background-color", "#ffffff");
+            root.style.height = `${element.scrollHeight}px`;
+            root.style.minHeight = `${element.scrollHeight}px`;
             forceHexInClone(root);
             stripOklchInClone(root);
           },
@@ -378,8 +393,13 @@ export default function App() {
         const pdf = new jsPDF("p", "mm", "a4");
         const imgProps = pdf.getImageProperties(imgData);
         const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+        const pdfPageHeight = pdf.internal.pageSize.getHeight();
+        const totalImgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        const numPages = Math.max(1, Math.ceil(totalImgHeight / pdfPageHeight));
+        for (let p = 0; p < numPages; p++) {
+          if (p > 0) pdf.addPage();
+          pdf.addImage(imgData, "PNG", 0, -p * pdfPageHeight, pdfWidth, totalImgHeight);
+        }
         pdf.save(`VisionToAction_Report_${selectedTask?.id}.pdf`);
       } finally {
         restore();
@@ -560,33 +580,27 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-10"
             >
-              <div className="flex items-center justify-between gap-4">
-                <button
-                  onClick={() => {
-                    if (profile.org?.trim() && profile.name?.trim() && profile.title?.trim()) {
-                      loadWrittenEntries(profile).then(() => setIsWrittenModalOpen(true));
-                    } else {
-                      setIsWrittenModalOpen(true);
-                    }
-                  }}
-                  className="shrink-0 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-black hover:bg-slate-800 transition-all flex items-center gap-2"
-                >
-                  <FileText size={18} />
-                  기존 작성 내용 확인하기
-                </button>
-                <div className="min-w-0" />
+              <div className="flex items-center justify-end gap-4">
+                {writtenEntries.length > 0 && (
+                  <button
+                    onClick={() => setIsWrittenModalOpen(true)}
+                    className="shrink-0 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-black hover:bg-slate-800 transition-all flex items-center gap-2"
+                  >
+                    <FileText size={18} />
+                    기존 작성 내용 확인하기
+                  </button>
+                )}
               </div>
               <div className="space-y-8">
-                <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                  <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">이 페이지에서 하는 일</h3>
-                  <p className="text-slate-800 font-medium leading-relaxed">본부별로 임원진이 도출한 AI 활용 희망 영역을 한눈에 보고, 팀에서 구체화할 과제를 선택합니다. 팀장/매니저는 본인 본부 또는 관심 과제를 선택한 뒤 다음 단계(임원진 비전 리뷰)로 진행하세요.</p>
-                </div>
                 <div className="space-y-3">
                   <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-50 text-[#ED1C24] rounded-full text-[10px] font-black uppercase tracking-widest border border-red-100">
                     <Sparkles size={12} /> Executive Vision Bridge
                   </div>
                   <h2 className="text-5xl font-black tracking-tighter text-slate-900 leading-none">본부별 <span className="text-[#ED1C24]">AI 활용 영역</span> 대시보드</h2>
-                  <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed">임원진이 도출한 AI 활용 영역을 확인하고, 팀의 역량을 집중할 핵심 과제를 선택하여 구체화하세요.</p>
+                  <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed whitespace-pre-line">
+                    본부별로 임원진이 도출한 AI 활용 희망 영역을 한눈에 보고, 팀에서 구체화할 과제를 선택합니다.
+                    팀장/매니저는 본인 본부 내에서 구현할 과제를 선택한 뒤 다음 단계(임원진 비전 리뷰)로 진행하세요.
+                  </p>
                 </div>
                 {/* 부제 하단: 구글 시트 A열 기준 전체 본부 선택 버튼 */}
                 <div className="flex flex-wrap items-center gap-2 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
@@ -679,10 +693,6 @@ export default function App() {
               exit={{ opacity: 0, x: -30 }}
               className="space-y-10"
             >
-              <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">이 페이지에서 하는 일</h3>
-                <p className="text-slate-800 font-medium leading-relaxed">선택한 과제에 대해 임원진이 작성한 AI 적용 희망 영역과, 과제 구체화를 위해 참고할 리뷰 내용을 확인합니다. 팀장/매니저는 &quot;임원진이 개선을 희망하는 업무 영역&quot;과 &quot;임원진은 왜 이 영역에 AI가 적용되길 기대하는가&quot;를 특히 참고한 뒤, 전략 구체화 단계로 진행하세요.</p>
-              </div>
               <div className="bg-white rounded-[3rem] p-12 shadow-xl shadow-slate-200/50 border border-gray-100">
                 <div className="flex items-center gap-4 mb-10">
                   <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-[#ED1C24] shadow-inner">
@@ -690,7 +700,11 @@ export default function App() {
                   </div>
                   <div>
                     <h2 className="text-4xl font-black tracking-tighter text-slate-900">임원진 비전 리뷰</h2>
-                    <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Executive Needs Analysis</p>
+                    <p className="text-slate-500 font-bold text-sm mt-2 leading-relaxed max-w-2xl">
+                      선택한 과제에 대해 임원진이 작성한 AI 적용 희망 영역과 과제 구체화를 위해 참고할 리뷰 내용을 확인합니다.
+                      <br />
+                      특히, &quot;임원진이 개선을 희망하는 업무 영역&quot;과 &quot;임원진은 왜 이 영역에 AI가 적용되길 기대했는지&quot;를 중점적으로 살펴보시고, 전략 구체화 단계를 진행해 주세요.
+                    </p>
                   </div>
                 </div>
 
@@ -740,7 +754,16 @@ export default function App() {
                       </div>
                       <div className="p-5 bg-white rounded-xl border-2 border-[#ED1C24]/30 shadow-sm">
                         <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">임원진은 왜 이 영역에 AI가 적용되길 기대하는가</h4>
-                        <p className="text-slate-800 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</p>
+                        <p className="text-slate-800 text-sm font-medium leading-relaxed whitespace-pre-wrap">
+                          {selectedTask.reason && selectedTask.reason.length > REASON_PREVIEW_LEN && !reasonExpanded
+                            ? selectedTask.reason.slice(0, REASON_PREVIEW_LEN).trim() + "…"
+                            : selectedTask.reason}
+                        </p>
+                        {selectedTask.reason && selectedTask.reason.length > REASON_PREVIEW_LEN && (
+                          <button type="button" onClick={() => setReasonExpanded((e) => !e)} className="text-xs font-bold text-[#ED1C24] mt-2">
+                            {reasonExpanded ? "요약 보기" : "전체 보기"}
+                          </button>
+                        )}
                       </div>
                       <div className="p-6 bg-slate-900 text-white rounded-xl shadow-lg">
                         <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">AI 적용 시 기대되는 전체 워크플로우 예시</h4>
@@ -809,17 +832,14 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="mb-10 p-6 rounded-2xl bg-slate-50 border border-slate-100">
-                    <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">이 페이지에서 하는 일</h3>
-                    <p className="text-slate-700 text-sm font-bold leading-relaxed mb-3">임원진이 제시한 AI 적용 희망 영역을 바탕으로, 과제를 구현자가 실행할 수 있도록 구체화합니다. 아래 5가지 질문에 답하며 Pain Point 원인, 개선 목표, AI 기대 변화, 성공 정의, 구현 시 고려사항을 정리해 주세요.</p>
-                    <p className="text-slate-500 text-xs font-medium">팀장/매니저 참고: 각 질문 옆 「AI와 대화」로 맥락을 보다 깊이 이해하고 답변을 다듬을 수 있습니다. 작성 후 저장을 눌러 두시면 이후 단계에서 불러올 수 있습니다.</p>
-                  </div>
-
-                  <p className="text-slate-600 text-sm font-medium mb-10 leading-relaxed">아래 내용은 후속 과정에서 구현자(실무자)에게 인계할 수 있도록, 가능한 한 구체적으로 작성해 주세요.</p>
+                  <p className="text-slate-600 text-sm font-medium mb-8 leading-relaxed border-l-4 border-[#ED1C24] pl-5 py-2">
+                    임원진이 제시한 AI 적용 희망 영역을 바탕으로, 과제를 구현할 구현자가 구현을 시작할 수 있도록 구체화 하는 단계입니다.
+                    아래 5가지 질문에 답하며 해소되어야 할 근본 원인을 규명하고, 개선 방향을 구체화 해 주세요.
+                  </p>
 
                   <div className="space-y-10">
                     {[
-                      { num: 1, key: 'q1', title: '임원이 제시한 Pain Point는 왜 발생하는 것인가요?', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideText: concretizeGuides.q1 || '', sub: 'AI 적용이 필요하다고 임원이 판단한 이유를 기반으로, 현업에서 그 이유가 왜 발생하는지 규명해 주세요.' },
+                      { num: 1, key: 'q1', title: '임원이 제시한 문제상황은 왜 발생하는 것인가요?', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideText: concretizeGuides.q1 || '', sub: 'AI 적용이 필요하다고 임원이 판단한 이유를 기반으로, 현업에서 그 이유가 왜 발생하는지 규명해 주세요.' },
                       { num: 2, key: 'q2', title: '이 문제를 해결하기 위해 반드시 개선되어야 하는 것은 무엇입니까?', value: concretize.q2, onChange: (v: string) => setConcretize(prev => ({ ...prev, q2: v })), guideText: concretizeGuides.q2 || '', sub: '' },
                       { num: 3, key: 'q3', title: '개선되어야 하는 과업이 AI를 기반으로 어떻게 변화되길 기대하십니까?', value: concretize.q3, onChange: (v: string) => setConcretize(prev => ({ ...prev, q3: v })), guideText: concretizeGuides.q3 || '', sub: '' },
                       { num: 4, key: 'q4', title: '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?', value: concretize.q4, onChange: (v: string) => setConcretize(prev => ({ ...prev, q4: v })), guideText: concretizeGuides.q4 || '', sub: '' },
@@ -837,24 +857,12 @@ export default function App() {
                           <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">작성 가이드</p>
                           <div className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{formatGuideText(guideText) || (isGuideLoading ? '가이드를 생성 중입니다…' : '가이드를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')}</div>
                         </div>
-                        <div className="flex gap-3">
-                          <textarea
-                            value={value}
-                            onChange={(e) => onChange(e.target.value)}
-                            placeholder="구현자가 바로 이해할 수 있도록 구체적으로 작성해 주세요."
-                            className="flex-1 min-h-[100px] p-4 bg-white rounded-xl border border-slate-200 focus:border-[#ED1C24] focus:ring-2 focus:ring-red-100 outline-none text-sm font-medium leading-relaxed transition-all"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => { setConcretizeChatQuestionIndex(idx); setConcretizeChatReply(''); setConcretizeChatInput(''); }}
-                            className={cn(
-                              "shrink-0 self-start px-4 py-2 rounded-xl text-xs font-bold transition-all",
-                              concretizeChatQuestionIndex === idx ? "bg-[#ED1C24] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                            )}
-                          >
-                            AI와 대화
-                          </button>
-                        </div>
+                        <textarea
+                          value={value}
+                          onChange={(e) => onChange(e.target.value)}
+                          placeholder="구현자가 바로 이해할 수 있도록 구체적으로 작성해 주세요."
+                          className="w-full min-h-[100px] p-4 bg-white rounded-xl border border-slate-200 focus:border-[#ED1C24] focus:ring-2 focus:ring-red-100 outline-none text-sm font-medium leading-relaxed transition-all"
+                        />
                       </section>
                     ))}
                   </div>
@@ -873,58 +881,59 @@ export default function App() {
 
               <div className="space-y-8">
                 <div className="bg-slate-900 text-white rounded-[2.5rem] p-8 sticky top-32">
-                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><Sparkles size={20} /> 질문별 AI 맥락 대화</h3>
-                  <p className="text-slate-300 text-xs font-medium mb-4">선택한 질문의 맥락을 더 깊이 이해하고 답변을 다듬고 싶을 때, AI와 대화해 보세요.</p>
-                  {concretizeChatQuestionIndex !== null ? (
-                    <div className="space-y-4">
-                      <p className="text-slate-400 text-xs font-bold">
-                        질문 {concretizeChatQuestionIndex + 1}: {[
-                          '임원이 제시한 Pain Point는 왜 발생하는 것인가요?',
-                          '이 문제를 해결하기 위해 반드시 개선되어야 하는 것은 무엇입니까?',
-                          '개선되어야 하는 과업이 AI를 기반으로 어떻게 변화되길 기대하십니까?',
-                          '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?',
-                          '구현 과정에서 구현자가 반드시 고려해야 할 사항은 무엇입니까?',
-                        ][concretizeChatQuestionIndex]}
-                      </p>
-                      <textarea
-                        value={concretizeChatInput}
-                        onChange={(e) => setConcretizeChatInput(e.target.value)}
-                        placeholder="질문에 대한 생각이나 초안을 입력하면 AI가 피드백을 드립니다."
-                        className="w-full min-h-[80px] p-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#ED1C24]"
-                      />
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!concretizeChatInput.trim() || selectedTask == null) return;
-                          setIsAiLoading(true);
-                          setConcretizeChatReply('');
-                          try {
-                            const stepName = `concretize_q${concretizeChatQuestionIndex! + 1}`;
-                            const reply = await getAiCoaching(selectedTask, stepName, concretizeChatInput);
-                            setConcretizeChatReply(reply || '');
-                          } catch (e) {
-                            setConcretizeChatReply('응답을 불러오지 못했습니다. 다시 시도해 주세요.');
-                          } finally {
-                            setIsAiLoading(false);
-                          }
-                        }}
-                        disabled={isAiLoading || !concretizeChatInput.trim()}
-                        className="w-full py-2.5 rounded-xl bg-[#ED1C24] text-white text-sm font-black disabled:opacity-50"
-                      >
-                        {isAiLoading ? '응답 생성 중…' : 'AI에게 질문하기'}
-                      </button>
-                      {concretizeChatReply ? (
-                        <div className="p-4 rounded-xl bg-white/10 border border-white/20 text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
-                          <Markdown>{concretizeChatReply}</Markdown>
-                        </div>
-                      ) : null}
-                      <button type="button" onClick={() => { setConcretizeChatQuestionIndex(null); setConcretizeChatReply(''); setConcretizeChatInput(''); }} className="text-slate-400 text-xs font-bold hover:text-white">
-                        패널 닫기
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-slate-500 text-xs">왼쪽 질문 옆 「AI와 대화」 버튼을 누르면 이곳에서 해당 질문에 대해 AI와 대화할 수 있습니다.</p>
-                  )}
+                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><Sparkles size={20} /> AI 맥락 대화</h3>
+                  <p className="text-slate-300 text-xs font-medium mb-4">어떤 질문이든 입력해 보세요. 맥락을 지정하면 토큰을 아끼며 더 정확한 피드백을 받을 수 있습니다.</p>
+                  <div className="space-y-4">
+                    <label className="block text-slate-400 text-xs font-bold">질문 선택 (맥락용)</label>
+                    <select
+                      value={concretizeChatQuestionIndex === null ? '' : concretizeChatQuestionIndex}
+                      onChange={(e) => setConcretizeChatQuestionIndex(e.target.value === '' ? null : Number(e.target.value))}
+                      className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#ED1C24]"
+                    >
+                      <option value="">선택 안 함</option>
+                      {[
+                        '임원이 제시한 문제상황은 왜 발생하는 것인가요?',
+                        '이 문제를 해결하기 위해 반드시 개선되어야 하는 것은 무엇입니까?',
+                        '개선되어야 하는 과업이 AI를 기반으로 어떻게 변화되길 기대하십니까?',
+                        '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?',
+                        '구현 과정에서 구현자가 반드시 고려해야 할 사항은 무엇입니까?',
+                      ].map((q, i) => (
+                        <option key={i} value={i}>질문 {i + 1}</option>
+                      ))}
+                    </select>
+                    <textarea
+                      value={concretizeChatInput}
+                      onChange={(e) => setConcretizeChatInput(e.target.value)}
+                      placeholder="질문에 대한 생각이나 초안을 입력하면 AI가 피드백을 드립니다."
+                      className="w-full min-h-[80px] p-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#ED1C24]"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!concretizeChatInput.trim() || selectedTask == null) return;
+                        setIsAiLoading(true);
+                        setConcretizeChatReply('');
+                        try {
+                          const stepName = concretizeChatQuestionIndex !== null ? `concretize_q${concretizeChatQuestionIndex + 1}` : 'concretize_general';
+                          const reply = await getAiCoaching(selectedTask, stepName, concretizeChatInput);
+                          setConcretizeChatReply(reply || '');
+                        } catch (e) {
+                          setConcretizeChatReply('응답을 불러오지 못했습니다. 다시 시도해 주세요.');
+                        } finally {
+                          setIsAiLoading(false);
+                        }
+                      }}
+                      disabled={isAiLoading || !concretizeChatInput.trim()}
+                      className="w-full py-2.5 rounded-xl bg-[#ED1C24] text-white text-sm font-black disabled:opacity-50"
+                    >
+                      {isAiLoading ? '응답 생성 중…' : 'AI에게 질문하기'}
+                    </button>
+                    {concretizeChatReply ? (
+                      <div className="p-4 rounded-xl bg-white/10 border border-white/20 text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
+                        <Markdown>{concretizeChatReply}</Markdown>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -938,11 +947,6 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="space-y-10"
             >
-              <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100 mb-8">
-                <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">이 페이지에서 하는 일</h3>
-                <p className="text-slate-700 text-sm font-bold leading-relaxed mb-2">최종 AX 과업지시서를 확인하고, 필요 시 PDF로 저장하거나 인쇄하여 활용할 수 있습니다. PDF 생성 오류 시 브라우저 인쇄(Ctrl+P) 후 「PDF로 저장」을 선택해 주세요.</p>
-                <p className="text-slate-500 text-xs font-medium">팀장/매니저 참고: 보고서는 임원진 리뷰·과제 구체화 내용을 반영한 롯데웰푸드 양식입니다.</p>
-              </div>
               <div className="flex justify-between items-center">
                 <div className="space-y-2">
                   <h2 className="text-4xl font-black tracking-tighter text-slate-900">최종 AX 과업지시서</h2>
@@ -1016,7 +1020,7 @@ export default function App() {
                     </div>
                     <div className="space-y-6">
                       <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100">
-                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">전체 워크플로우</h4>
+                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">AI가 설계한 예상 워크플로우</h4>
                         <p className="text-base font-bold text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedTask.workflow}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-6">
@@ -1039,7 +1043,7 @@ export default function App() {
                     </div>
                     <div className="space-y-6">
                       {[
-                        { label: '임원이 제시한 Pain Point는 왜 발생하는 것인가요?', value: concretize.q1 },
+                        { label: '임원이 제시한 문제상황은 왜 발생하는 것인가요?', value: concretize.q1 },
                         { label: '이 문제를 해결하기 위해 반드시 개선되어야 하는 것은 무엇입니까?', value: concretize.q2 },
                         { label: '개선되어야 하는 과업이 AI를 기반으로 어떻게 변화되길 기대하십니까?', value: concretize.q3 },
                         { label: '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?', value: concretize.q4 },
