@@ -1,0 +1,34 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "Pretendard", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  body {
+    @apply antialiased text-slate-900;
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  }
+}
+
+.markdown-body {
+  @apply text-sm leading-relaxed;
+}
+
+.markdown-body p {
+  @apply mb-4;
+}
+
+.markdown-body strong {
+  @apply text-[#004B8D] font-bold;
+}
+
+.markdown-body ul {
+  @apply list-disc pl-4 mb-4;
+}
+
+.markdown-body li {
+  @apply mb-1;
+}

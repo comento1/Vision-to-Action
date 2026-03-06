@@ -1,0 +1,640 @@
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  LayoutDashboard, 
+  Target, 
+  TrendingUp, 
+  AlertCircle, 
+  CheckCircle2, 
+  FileText, 
+  ArrowRight, 
+  ChevronRight, 
+  Clock, 
+  ShieldCheck, 
+  Users,
+  Download,
+  Sparkles,
+  Search,
+  Filter,
+  RefreshCw
+} from 'lucide-react';
+import { MOCK_TASKS } from './constants';
+import { ExecutiveTask, ProjectDefinition, Department, ConcretizeForm } from './types';
+import { cn } from './lib/utils';
+import Markdown from 'react-markdown';
+import { getAiCoaching, suggestKpis } from './services/geminiService';
+import { fetchTasks, saveWrittenContent } from './services/sheetService';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+
+type Step = 'dashboard' | 'review' | 'concretize' | 'export';
+
+const LOTTE_LOGO = "https://potens-box.s3.ap-northeast-2.amazonaws.com/IMG%2F%EB%A1%AF%EB%8D%B0%EC%9B%B0%ED%91%B8%EB%93%9C.png";
+
+export default function App() {
+  const [currentStep, setCurrentStep] = useState<Step>('dashboard');
+  const [tasks, setTasks] = useState<ExecutiveTask[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<ExecutiveTask | null>(null);
+  const [departmentFilter, setDepartmentFilter] = useState<string>('전체');
+  const [definition, setDefinition] = useState<ProjectDefinition>({
+    taskId: '',
+    painPointDetail: '',
+    currentHours: 0,
+    targetKpiQuant: '',
+    targetKpiQual: '',
+    mvpScope: '',
+    collaborators: [],
+    securityChecks: {
+      externalInstall: false,
+      dataMasking: true,
+      logicValidation: true,
+    },
+    successDefinition: '',
+  });
+
+  const [aiCoaching, setAiCoaching] = useState<string>('');
+  const [suggestedKpis, setSuggestedKpis] = useState<{ quantitative: string[], qualitative: string[] }>({ quantitative: [], qualitative: [] });
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [concretize, setConcretize] = useState<ConcretizeForm>({
+    q1: '', q2: '', q3: '', q4: '', q5: '', q6: '',
+  });
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  const loadTasks = async () => {
+    setIsLoadingTasks(true);
+    const result = await fetchTasks();
+    setTasks(result.tasks);
+    setIsDemoMode(result.isDemoMode);
+    setIsLoadingTasks(false);
+  };
+
+  const departments = ['전체', ...Array.from(new Set(tasks.map(t => t.department)))];
+
+  const filteredTasks = departmentFilter === '전체' 
+    ? tasks 
+    : tasks.filter(t => t.department === departmentFilter);
+
+  const handleTaskSelect = (task: ExecutiveTask) => {
+    setSelectedTask(task);
+    setDefinition(prev => ({ ...prev, taskId: task.id }));
+    setCurrentStep('review');
+  };
+
+  const handleAiCoaching = async (stepName: string, input: string) => {
+    if (!selectedTask || !input) return;
+    setIsAiLoading(true);
+    try {
+      const coaching = await getAiCoaching(selectedTask, stepName, input);
+      setAiCoaching(coaching || '');
+    } catch (error) {
+      console.error('AI Coaching Error:', error);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const fetchKpiSuggestions = async () => {
+    if (!selectedTask) return;
+    setIsAiLoading(true);
+    try {
+      const suggestions = await suggestKpis(selectedTask);
+      setSuggestedKpis(suggestions);
+    } catch (error) {
+      console.error('KPI Suggestion Error:', error);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const exportToPDF = async () => {
+    const element = document.getElementById('report-content');
+    if (!element) return;
+    
+    const canvas = await html2canvas(element, { scale: 2 });
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const imgProps = pdf.getImageProperties(imgData);
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+    
+    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+    pdf.save(`VisionToAction_Report_${selectedTask?.id}.pdf`);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F8F9FA] text-[#212529] font-sans">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center shadow-sm">
+        <div className="flex items-center gap-6">
+          <img 
+            src={LOTTE_LOGO} 
+            alt="Lotte Wellfood" 
+            className="h-8 object-contain"
+            referrerPolicy="no-referrer"
+          />
+          <div className="h-6 w-px bg-gray-200" />
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-lg font-extrabold tracking-tight text-[#ED1C24]">Vision to Action</h1>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">AX Strategy Builder</p>
+            </div>
+            {isDemoMode && (
+              <div className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-widest rounded-full border border-amber-200 animate-pulse">
+                Demo Mode
+              </div>
+            )}
+          </div>
+        </div>
+        
+        <nav className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-2xl border border-gray-100">
+          {(['dashboard', 'review', 'concretize', 'export'] as Step[]).map((step, idx) => (
+            <button
+              key={step}
+              onClick={() => selectedTask && setCurrentStep(step)}
+              disabled={!selectedTask && step !== 'dashboard'}
+              className={cn(
+                "px-5 py-2 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2",
+                currentStep === step 
+                  ? "bg-[#ED1C24] text-white shadow-md shadow-red-200" 
+                  : "text-gray-400 hover:text-gray-600 disabled:opacity-30"
+              )}
+            >
+              <span className={cn(
+                "w-5 h-5 rounded-full flex items-center justify-center text-[10px]",
+                currentStep === step ? "bg-white/20" : "bg-gray-200"
+              )}>{idx + 1}</span>
+              {step.charAt(0).toUpperCase() + step.slice(1)}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main className="max-w-7xl mx-auto p-8">
+        <AnimatePresence mode="wait">
+          {currentStep === 'dashboard' && (
+            <motion.div
+              key="dashboard"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-10"
+            >
+              <div className="space-y-8">
+                <div className="space-y-3">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-50 text-[#ED1C24] rounded-full text-[10px] font-black uppercase tracking-widest border border-red-100">
+                    <Sparkles size={12} /> Executive Vision Bridge
+                  </div>
+                  <h2 className="text-5xl font-black tracking-tighter text-slate-900 leading-none">본부별 <span className="text-[#ED1C24]">AI 활용 영역</span> 대시보드</h2>
+                  <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed">임원진이 도출한 AI 활용 영역을 확인하고, 팀의 역량을 집중할 핵심 과제를 선택하여 구체화하세요.</p>
+                </div>
+                {/* 부제 하단: 구글 시트 A열 기준 전체 본부 선택 버튼 */}
+                <div className="flex flex-wrap items-center gap-2 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mr-2">본부 선택</span>
+                  {departments.map(dept => (
+                    <button
+                      key={dept}
+                      onClick={() => setDepartmentFilter(dept)}
+                      className={cn(
+                        "px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300",
+                        departmentFilter === dept 
+                          ? "bg-slate-900 text-white shadow-lg shadow-slate-200" 
+                          : "text-slate-400 hover:bg-gray-50 hover:text-slate-600"
+                      )}
+                    >
+                      {dept}
+                    </button>
+                  ))}
+                  <button 
+                    onClick={loadTasks}
+                    className="p-2.5 rounded-xl text-slate-400 hover:bg-gray-50 hover:text-[#ED1C24] transition-all ml-auto"
+                    title="새로고침"
+                  >
+                    <RefreshCw size={20} className={isLoadingTasks ? "animate-spin" : ""} />
+                  </button>
+                </div>
+              </div>
+
+              {isLoadingTasks ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {[1, 2, 3, 4, 5, 6].map(i => (
+                    <div key={i} className="bg-white rounded-3xl p-8 h-64 animate-pulse border border-gray-100 shadow-sm" />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {filteredTasks.map(task => (
+                    <motion.div
+                      key={task.id}
+                      whileHover={{ y: -8, scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleTaskSelect(task)}
+                      className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 cursor-pointer hover:border-[#ED1C24]/30 hover:shadow-2xl hover:shadow-red-500/5 transition-all group relative overflow-hidden"
+                    >
+                      <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <TrendingUp size={120} className="text-[#ED1C24]" />
+                      </div>
+                      
+                      <div className="flex justify-between items-start mb-6 relative z-10">
+                        <div className="flex gap-2">
+                          <span className="px-4 py-1.5 bg-slate-50 text-slate-500 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-100">
+                            {task.department}
+                          </span>
+                          {task.priority && (
+                            <span className="px-3 py-1.5 bg-red-50 text-[#ED1C24] rounded-full text-[10px] font-black border border-red-100">
+                              우선순위 {task.priority}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-mono font-bold text-slate-300">{task.id}</span>
+                      </div>
+                      
+                      <h3 className="text-2xl font-black leading-tight mb-4 text-slate-900 group-hover:text-[#ED1C24] transition-colors relative z-10">
+                        {task.expectedArea}
+                      </h3>
+                      
+                      <p className="text-slate-500 text-sm leading-relaxed mb-8 line-clamp-3 font-medium relative z-10">
+                        {task.oneLineSummary}
+                      </p>
+                      
+                      <div className="flex items-center justify-between pt-6 border-t border-gray-50 relative z-10">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
+                          <Target size={14} /> 임원 기대 영역
+                        </div>
+                        <div className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-[#ED1C24] group-hover:text-white group-hover:rotate-45 transition-all duration-500">
+                          <ArrowRight size={20} />
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {currentStep === 'review' && selectedTask && (
+            <motion.div
+              key="review"
+              initial={{ opacity: 0, x: 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -30 }}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-10"
+            >
+              <div className="lg:col-span-2 space-y-10">
+                <div className="bg-white rounded-[3rem] p-12 shadow-xl shadow-slate-200/50 border border-gray-100">
+                  <div className="flex items-center gap-4 mb-10">
+                    <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-[#ED1C24] shadow-inner">
+                      <Target size={32} />
+                    </div>
+                    <div>
+                      <h2 className="text-4xl font-black tracking-tighter text-slate-900">임원진 비전 리뷰</h2>
+                      <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Executive Needs Analysis</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-14">
+                    {/* 구역 1: 임원이 도출한 내용 (C~G열) */}
+                    <section className="rounded-[2rem] border-2 border-[#ED1C24]/20 bg-red-50/30 p-8">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-10 h-10 rounded-xl bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">C~G</div>
+                        <div>
+                          <h3 className="text-lg font-black text-slate-900">임원이 도출한 내용</h3>
+                          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">과제리뷰 C~G열</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
+                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">C열 · AI 적용 기대영역</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedArea}</p>
+                        </div>
+                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
+                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">D열 · AI 적용 기대이유</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</p>
+                        </div>
+                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
+                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">E열 · 기대하는 변화의 모습</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedChange}</p>
+                        </div>
+                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
+                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">F열 · 수행 조직</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.executingOrg}</p>
+                        </div>
+                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm md:col-span-2">
+                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">G열 · 구현 간 고려사항</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.considerations}</p>
+                        </div>
+                      </div>
+                    </section>
+
+                    {/* 구역 2: 과제리뷰 참고 자료 (H~N열) */}
+                    <section className="rounded-[2rem] border-2 border-slate-200 bg-slate-50/50 p-8">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center text-sm font-black">H~N</div>
+                        <div>
+                          <h3 className="text-lg font-black text-slate-900">과제리뷰 참고 자료</h3>
+                          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">리뷰 시 참고하도록 배치한 내용 (H~N열)</p>
+                        </div>
+                      </div>
+                      <div className="space-y-5">
+                        <div className="p-5 bg-white rounded-xl border border-slate-100">
+                          <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">H열 · 핵심 한 줄 요약</h4>
+                          <p className="text-slate-800 text-base font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.oneLineSummary}</p>
+                        </div>
+                        <div className="p-6 bg-slate-900 text-white rounded-xl shadow-lg">
+                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-3">I열 · 전체 과업 워크플로우</h4>
+                          <p className="text-slate-300 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.workflow}</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          <div className="p-5 bg-white rounded-xl border border-slate-100">
+                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">J열 · 팀장 관점 핵심 포인트</h4>
+                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.leaderKeyPoints}</p>
+                          </div>
+                          <div className="p-5 bg-white rounded-xl border border-slate-100">
+                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">K열 · 과제 구체화 탐색 질문</h4>
+                            <p className="text-slate-700 text-sm font-medium leading-relaxed italic whitespace-pre-wrap">{selectedTask.explorationQuestions}</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          <div className="p-5 bg-white rounded-xl border border-slate-100">
+                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">L열 · 현실적인 구현 범위 설정</h4>
+                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.implementationScope}</p>
+                          </div>
+                          <div className="p-5 bg-white rounded-xl border border-slate-100">
+                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">M열 · 구현 전 검토 사항</h4>
+                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.preReviewItems}</p>
+                          </div>
+                        </div>
+                        <div className="p-5 bg-amber-50 rounded-xl border border-amber-100">
+                          <h4 className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-2">N열 · 성공의 정의-평가 기준</h4>
+                          <p className="text-slate-800 text-sm font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.successDefinition}</p>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+
+                  <div className="mt-16 flex justify-end">
+                    <button
+                      onClick={() => setCurrentStep('concretize')}
+                      className="px-10 py-5 bg-[#ED1C24] text-white rounded-2xl font-black text-lg flex items-center gap-3 hover:bg-[#D11920] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/20"
+                    >
+                      전략 구체화 시작하기 <ChevronRight size={24} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                <div className="bg-slate-900 text-white rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden">
+                  <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-3xl" />
+                  <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-[#ED1C24]">
+                    <Sparkles size={24} /> North Star Guide
+                  </h3>
+                  <p className="text-slate-300 text-sm leading-relaxed mb-10 font-medium">
+                    "단순 반복 업무에서 해방되어, 팀장님의 진짜 전문성이 필요한 전략적 의사결정에 집중할 수 있는 환경을 만드는 것이 이 과제의 핵심입니다."
+                  </p>
+                  <div className="space-y-6">
+                    <div className="flex items-start gap-4 group">
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black group-hover:bg-[#ED1C24] transition-colors">1</div>
+                      <p className="text-xs text-slate-400 font-bold leading-relaxed">현장의 고충(Pain Point)을 데이터로 증명하세요.</p>
+                    </div>
+                    <div className="flex items-start gap-4 group">
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black group-hover:bg-[#ED1C24] transition-colors">2</div>
+                      <p className="text-xs text-slate-400 font-bold leading-relaxed">성공의 정의를 '시간 단축' 그 이상으로 정의하세요.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {currentStep === 'concretize' && selectedTask && (
+            <motion.div
+              key="concretize"
+              initial={{ opacity: 0, x: 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -30 }}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-10"
+            >
+              <div className="lg:col-span-2 space-y-10">
+                <div className="bg-white rounded-[3rem] p-12 shadow-xl shadow-slate-200/50 border border-gray-100">
+                  <div className="flex items-center justify-between mb-12">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-[#ED1C24] shadow-inner">
+                        <FileText size={32} />
+                      </div>
+                      <div>
+                        <h2 className="text-4xl font-black tracking-tighter text-slate-900">과제 구체화</h2>
+                        <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Strategy Concretization</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {saveStatus === 'saved' && <span className="text-xs font-bold text-emerald-600">작성내용 저장됨</span>}
+                      {saveStatus === 'error' && <span className="text-xs font-bold text-red-600">저장 실패</span>}
+                      <button
+                        onClick={async () => {
+                          setSaveStatus('saving');
+                          const result = await saveWrittenContent({
+                            taskId: selectedTask.id,
+                            department: selectedTask.department,
+                            expectedArea: selectedTask.expectedArea,
+                            concretize: { q1: concretize.q1, q2: concretize.q2, q3: concretize.q3, q4: concretize.q4, q5: concretize.q5, q6: concretize.q6 },
+                          });
+                          setSaveStatus(result.success ? 'saved' : 'error');
+                        }}
+                        disabled={saveStatus === 'saving'}
+                        className="px-5 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 disabled:opacity-50 transition-all"
+                      >
+                        {saveStatus === 'saving' ? '저장 중…' : '작성내용 시트에 저장'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-slate-500 text-sm font-medium mb-10 leading-relaxed">과제리뷰 I~N열 내용을 참고하여 아래 항목을 작성해 주세요. 작성 내용은 구글 시트 「작성내용」에 저장됩니다.</p>
+
+                  <div className="space-y-10">
+                    {[
+                      { num: 1, title: '대상 과업의 현재 수행방식(워크플로우) 정리하기', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideLabel: 'I열 참고', guideText: selectedTask.workflow },
+                      { num: 2, title: '현재의 수행방식으로 인해 발생된 현상과 Root Cause 도출/ 정의하기', value: concretize.q2, onChange: (v: string) => setConcretize(prev => ({ ...prev, q2: v })), guideLabel: 'J열 참고', guideText: selectedTask.leaderKeyPoints },
+                      { num: 3, title: '과업의 Root Cause를 해소하기 위해 무엇을 바꿔야 하는가?', value: concretize.q3, onChange: (v: string) => setConcretize(prev => ({ ...prev, q3: v })), guideLabel: 'K열 참고', guideText: selectedTask.explorationQuestions },
+                      { num: 4, title: 'Root Cause가 AI를 기반으로 해소된 모습 그려보기', value: concretize.q4, onChange: (v: string) => setConcretize(prev => ({ ...prev, q4: v })), guideLabel: 'N열 참고', guideText: selectedTask.successDefinition },
+                      { num: 5, title: '후속 과정에서 구현될 솔루션은 핵심적으로 어떤 요소를 포함하고 있어야 하는가?', value: concretize.q5, onChange: (v: string) => setConcretize(prev => ({ ...prev, q5: v })), guideLabel: 'L열 참고', guideText: selectedTask.implementationScope },
+                      { num: 6, title: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가?', value: concretize.q6, onChange: (v: string) => setConcretize(prev => ({ ...prev, q6: v })), guideLabel: 'M열 참고', guideText: selectedTask.preReviewItems },
+                    ].map(({ num, title, value, onChange, guideLabel, guideText }) => (
+                      <section key={num} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-6">
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="w-8 h-8 rounded-lg bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">{num}</div>
+                          <h3 className="text-lg font-black text-slate-800">{title}</h3>
+                        </div>
+                        <div className="mb-4 p-4 bg-white rounded-xl border border-slate-100">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">작성 가이드 · {guideLabel}</p>
+                          <p className="text-slate-600 text-sm font-medium leading-relaxed whitespace-pre-wrap">{guideText || '—'}</p>
+                        </div>
+                        <textarea
+                          value={value}
+                          onChange={(e) => onChange(e.target.value)}
+                          placeholder="위 가이드를 참고하여 작성해 주세요."
+                          className="w-full min-h-[100px] p-4 bg-white rounded-xl border border-slate-200 focus:border-[#ED1C24] focus:ring-2 focus:ring-red-100 outline-none text-sm font-medium leading-relaxed transition-all"
+                        />
+                      </section>
+                    ))}
+                  </div>
+
+                  <div className="mt-14 flex justify-between items-center">
+                    <button onClick={() => setCurrentStep('review')} className="px-6 py-3 text-slate-500 font-bold rounded-xl hover:bg-slate-100 transition-all">이전</button>
+                    <button
+                      onClick={() => setCurrentStep('export')}
+                      className="px-10 py-5 bg-[#ED1C24] text-white rounded-2xl font-black text-lg flex items-center gap-3 hover:bg-[#D11920] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/20"
+                    >
+                      최종 보고서 확인하기 <ChevronRight size={24} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                <div className="bg-slate-900 text-white rounded-[2.5rem] p-8 sticky top-32">
+                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><FileText size={20} /> 작성 안내</h3>
+                  <p className="text-slate-300 text-sm leading-relaxed font-medium">
+                    각 질문 아래에 과제리뷰 시트의 I~N열에서 발췌한 참고 내용이 가이드로 제시됩니다. 이를 바탕으로 본부·과제에 맞게 구체적으로 작성한 뒤, 「작성내용 시트에 저장」 버튼을 누르면 구글 시트의 「작성내용」 시트에 저장됩니다.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {currentStep === 'export' && selectedTask && (
+            <motion.div
+              key="export"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="space-y-10"
+            >
+              <div className="flex justify-between items-center">
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-black tracking-tighter text-slate-900">최종 AX 과업지시서</h2>
+                  <p className="text-slate-500 font-medium text-lg">작성된 내용을 바탕으로 롯데웰푸드 양식의 보고서가 생성되었습니다.</p>
+                </div>
+                <button
+                  onClick={exportToPDF}
+                  className="px-8 py-4 bg-[#ED1C24] text-white rounded-2xl font-black text-lg flex items-center gap-3 hover:bg-[#D11920] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/20"
+                >
+                  <Download size={24} /> PDF 다운로드
+                </button>
+              </div>
+
+              <div id="report-content" className="bg-white shadow-2xl mx-auto max-w-[900px] p-16 border border-gray-100 min-h-[1200px] rounded-[3rem]">
+                {/* PDF Header */}
+                <div className="flex justify-between items-end border-b-4 border-[#ED1C24] pb-10 mb-12">
+                  <div className="space-y-4">
+                    <img 
+                      src={LOTTE_LOGO} 
+                      alt="Lotte Wellfood" 
+                      className="h-10 object-contain"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div>
+                      <h1 className="text-4xl font-black text-slate-900 tracking-tighter mb-1 uppercase">AX STRATEGY REPORT</h1>
+                      <p className="text-sm font-black text-[#ED1C24] tracking-[0.3em]">VISION TO ACTION PROJECT</p>
+                    </div>
+                  </div>
+                  <div className="text-right space-y-1">
+                    <p className="text-sm font-black text-slate-900">{new Date().toLocaleDateString()}</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{selectedTask.department}</p>
+                  </div>
+                </div>
+
+                {/* PDF Content */}
+                <div className="space-y-12">
+                  <section>
+                    <div className="flex items-center gap-3 bg-slate-900 text-white px-6 py-3 rounded-2xl mb-8 shadow-lg">
+                      <LayoutDashboard size={20} className="text-[#ED1C24]" />
+                      <span className="text-lg font-black uppercase tracking-tight">1. 과제 선정 배경 및 임원 니즈</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-px bg-gray-100 border border-gray-100 rounded-2xl overflow-hidden">
+                      <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">과제명</div>
+                      <div className="col-span-3 bg-white p-6 text-lg font-black text-slate-900">{selectedTask.expectedArea}</div>
+                      <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">임원 제시 내용</div>
+                      <div className="col-span-3 bg-white p-6 text-base font-bold text-slate-600 leading-relaxed">{selectedTask.oneLineSummary}</div>
+                      <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">기대 변화</div>
+                      <div className="col-span-3 bg-white p-6 text-base font-bold text-emerald-600 leading-relaxed whitespace-pre-wrap">{selectedTask.expectedChange}</div>
+                      <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">수행 조직</div>
+                      <div className="col-span-3 bg-white p-6 text-base font-bold text-slate-600 leading-relaxed">{selectedTask.executingOrg}</div>
+                      <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">고려 사항</div>
+                      <div className="col-span-3 bg-white p-6 text-base font-bold text-slate-600 leading-relaxed whitespace-pre-wrap">{selectedTask.considerations}</div>
+                    </div>
+                  </section>
+
+                  <section>
+                    <div className="flex items-center gap-3 bg-slate-900 text-white px-6 py-3 rounded-2xl mb-8 shadow-lg">
+                      <RefreshCw size={20} className="text-[#ED1C24]" />
+                      <span className="text-lg font-black uppercase tracking-tight">2. 전략적 가이드 및 워크플로우</span>
+                    </div>
+                    <div className="space-y-6">
+                      <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100">
+                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">전체 워크플로우 (I열)</h4>
+                        <p className="text-base font-bold text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedTask.workflow}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">팀장 관점 포인트 (J열)</h4>
+                          <p className="text-sm font-bold text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedTask.leaderKeyPoints}</p>
+                        </div>
+                        <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">성공 정의 (N열)</h4>
+                          <p className="text-sm font-bold text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedTask.successDefinition}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section>
+                    <div className="flex items-center gap-3 bg-slate-900 text-white px-6 py-3 rounded-2xl mb-8 shadow-lg">
+                      <FileText size={20} className="text-[#ED1C24]" />
+                      <span className="text-lg font-black uppercase tracking-tight">3. 과제 구체화 (작성 내용)</span>
+                    </div>
+                    <div className="space-y-6">
+                      {[
+                        { label: '대상 과업의 현재 수행방식(워크플로우) 정리하기', value: concretize.q1 },
+                        { label: '현재의 수행방식으로 인해 발생된 현상과 Root Cause 도출/ 정의하기', value: concretize.q2 },
+                        { label: '과업의 Root Cause를 해소하기 위해 무엇을 바꿔야 하는가?', value: concretize.q3 },
+                        { label: 'Root Cause가 AI를 기반으로 해소된 모습 그려보기', value: concretize.q4 },
+                        { label: '후속 과정에서 구현될 솔루션은 핵심적으로 어떤 요소를 포함하고 있어야 하는가?', value: concretize.q5 },
+                        { label: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가?', value: concretize.q6 },
+                      ].map(({ label, value }, i) => (
+                        <div key={i} className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{i + 1}. {label}</h4>
+                          <p className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{value || '—'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="pt-16 border-t-2 border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <img 
+                          src={LOTTE_LOGO} 
+                          alt="Lotte Wellfood" 
+                          className="h-6 object-contain grayscale opacity-30"
+                          referrerPolicy="no-referrer"
+                        />
+                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.5em]">Vision to Action</p>
+                      </div>
+                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Confidential & Strategic Document</p>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
