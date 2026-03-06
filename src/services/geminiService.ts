@@ -85,14 +85,13 @@ export async function getConcretizeGuides(task: ExecutiveTask) {
 - 본부: ${task.department}
 
 [과제 리뷰 참고 내용]
-- 핵심 한 줄 요약: ${task.oneLineSummary}
+- 임원진이 개선을 희망하는 업무 영역(한줄요약): ${task.oneLineSummary}
+- AI 적용이 필요한 이유(임원진 기대 맥락): ${task.reason}
 - AI 적용 시 기대되는 워크플로우 예시: ${task.workflow}
 - 팀장 관점 핵심 포인트: ${task.leaderKeyPoints}
-- 구체화 탐색 질문: ${task.explorationQuestions}
 - 현실적인 구현 범위(힌트): ${task.implementationScope}
 - 구현 전 검토 사항: ${task.preReviewItems}
 - 성공의 정의(평가 기준): ${task.successDefinition}
-- 기대이유: ${task.reason}
 - 기대변화: ${task.expectedChange}
 - 고려사항: ${task.considerations}
 
@@ -101,11 +100,11 @@ export async function getConcretizeGuides(task: ExecutiveTask) {
 - 생성형 AI로 실제 구현 단계를 앞둔 상황이므로, 팀장이 구체화·점검해야 할 항목이 빠짐없이 드러나도록 하세요.
 
 질문:
-q1: 현재는 해당 과업을 어떻게 수행하고 있는지 상세하게 정리해주세요.
-q2: 현재의 수행방식으로 인해 발생된 비효율 및 개선 포인트는 무엇인가요?
-q4: 선택한 과업이 AI를 기반으로 어떻게 생산성이 향상되기를 기대하십니까?
-q5: 이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 포함되어야 할 것은 무엇입니까?
-q6: 구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가요?
+q1: 임원이 제시한 Pain Point는 왜 발생하는 것인가요? (AI 적용이 필요하다고 임원이 판단한 이유를 기반으로, 현업에서 그 이유가 왜 발생하는지 규명)
+q2: 이 문제를 해결하기 위해 반드시 개선되어야 하는 것은 무엇입니까?
+q3: 개선되어야 하는 과업이 AI를 기반으로 어떻게 변화되길 기대하십니까?
+q4: 이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?
+q5: 구현 과정에서 구현자가 반드시 고려해야 할 사항은 무엇입니까? (특정 단계에서 상급자 컨펌, 준수 사항 등)
 `,
     config: {
       responseMimeType: "application/json",
@@ -114,13 +113,13 @@ q6: 구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇
         properties: {
           q1: { type: Type.STRING },
           q2: { type: Type.STRING },
+          q3: { type: Type.STRING },
           q4: { type: Type.STRING },
           q5: { type: Type.STRING },
-          q6: { type: Type.STRING },
         },
       },
     },
   });
 
-  return JSON.parse(response.text || "{}") as { q1?: string; q2?: string; q4?: string; q5?: string; q6?: string };
+  return JSON.parse(response.text || "{}") as { q1?: string; q2?: string; q3?: string; q4?: string; q5?: string };
 }

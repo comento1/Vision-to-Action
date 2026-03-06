@@ -61,10 +61,13 @@ export default function App() {
   const [aiCoaching, setAiCoaching] = useState<string>('');
   const [suggestedKpis, setSuggestedKpis] = useState<{ quantitative: string[], qualitative: string[] }>({ quantitative: [], qualitative: [] });
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [concretizeGuides, setConcretizeGuides] = useState<{ q1?: string; q2?: string; q4?: string; q5?: string; q6?: string }>({});
+  const [concretizeGuides, setConcretizeGuides] = useState<{ q1?: string; q2?: string; q3?: string; q4?: string; q5?: string }>({});
   const [concretize, setConcretize] = useState<ConcretizeForm>({
     q1: '', q2: '', q3: '', q4: '', q5: '', q6: '',
   });
+  const [concretizeChatQuestionIndex, setConcretizeChatQuestionIndex] = useState<number | null>(null);
+  const [concretizeChatInput, setConcretizeChatInput] = useState('');
+  const [concretizeChatReply, setConcretizeChatReply] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isGuideLoading, setIsGuideLoading] = useState(false);
 
@@ -182,8 +185,8 @@ export default function App() {
       q2: entry.concretize.q2 || '',
       q3: entry.concretize.q3 || '',
       q4: entry.concretize.q4 || '',
-      q5: entry.concretize.q5 || '',
-      q6: entry.concretize.q6 || '',
+      q5: entry.concretize.q5 || entry.concretize.q6 || '',
+      q6: '',
     });
     setCurrentStep('concretize');
     setIsWrittenModalOpen(false);
@@ -203,10 +206,10 @@ export default function App() {
       concretize: {
         q1: concretize.q1,
         q2: concretize.q2,
-        q3: '',
+        q3: concretize.q3,
         q4: concretize.q4,
         q5: concretize.q5,
-        q6: concretize.q6,
+        q6: '',
       },
     });
     setSaveStatus(result.success ? 'saved' : 'error');
@@ -324,25 +327,32 @@ export default function App() {
       .pdf-safe .border-slate-100, .pdf-safe .border-gray-100 { border-color: #e2e8f0 !important; }
     `;
 
+    const safeHex: Record<string, string> = {
+      "bg-slate-900": "#0f172a", "bg-slate-50": "#f8fafc", "bg-gray-100": "#f3f4f6", "bg-white": "#ffffff",
+      "text-slate-900": "#0f172a", "text-slate-800": "#1e293b", "text-slate-700": "#334155", "text-slate-600": "#475569",
+      "text-slate-500": "#64748b", "text-slate-400": "#94a3b8", "text-slate-300": "#cbd5e1", "text-emerald-600": "#059669",
+      "border-slate-100": "#e2e8f0", "border-gray-100": "#f3f4f6",
+    };
     const forceHexInClone = (el: HTMLElement) => {
-      const cls = el.className || "";
-      if (typeof cls !== "string") return;
-      if (cls.includes("bg-slate-900")) {
-        el.style.setProperty("background-color", "#0f172a", "important");
-        el.style.setProperty("color", "#e2e8f0", "important");
-      } else if (cls.includes("bg-slate-50")) el.style.setProperty("background-color", "#f8fafc", "important");
-      else if (cls.includes("bg-gray-100")) el.style.setProperty("background-color", "#f3f4f6", "important");
-      else if (cls.includes("bg-white")) el.style.setProperty("background-color", "#ffffff", "important");
-      else if (cls.includes("text-slate-900")) el.style.setProperty("color", "#0f172a", "important");
-      else if (cls.includes("text-slate-800")) el.style.setProperty("color", "#1e293b", "important");
-      else if (cls.includes("text-slate-700")) el.style.setProperty("color", "#334155", "important");
-      else if (cls.includes("text-slate-600")) el.style.setProperty("color", "#475569", "important");
-      else if (cls.includes("text-slate-500")) el.style.setProperty("color", "#64748b", "important");
-      else if (cls.includes("text-slate-400")) el.style.setProperty("color", "#94a3b8", "important");
-      else if (cls.includes("text-slate-300")) el.style.setProperty("color", "#cbd5e1", "important");
+      const cls = String(el.className || "");
       el.style.setProperty("box-shadow", "none", "important");
       el.style.setProperty("text-shadow", "none", "important");
+      for (const [key, hex] of Object.entries(safeHex)) {
+        if (cls.includes(key)) {
+          if (key.startsWith("bg-")) el.style.setProperty("background-color", hex, "important");
+          else if (key.startsWith("text-")) el.style.setProperty("color", hex, "important");
+          else if (key.startsWith("border-")) el.style.setProperty("border-color", hex, "important");
+        }
+      }
+      if (cls.includes("bg-slate-900")) el.style.setProperty("color", "#e2e8f0", "important");
       Array.from(el.children).forEach((c) => c instanceof HTMLElement && forceHexInClone(c));
+    };
+    const stripOklchInClone = (el: HTMLElement) => {
+      const s = el.style;
+      if (s.color && /oklch|lab|lch/.test(s.color)) s.setProperty("color", "#0f172a", "important");
+      if (s.backgroundColor && /oklch|lab|lch/.test(s.backgroundColor)) s.setProperty("background-color", "#ffffff", "important");
+      if (s.borderColor && /oklch|lab|lch/.test(s.borderColor)) s.setProperty("border-color", "#e2e8f0", "important");
+      el.querySelectorAll<HTMLElement>("*").forEach(stripOklchInClone);
     };
 
     try {
@@ -357,9 +367,11 @@ export default function App() {
             const style = _doc.createElement("style");
             style.textContent = pdfSafeCss;
             _doc.head.appendChild(style);
-            clonedEl.style.setProperty("color", "#0f172a");
-            clonedEl.style.setProperty("background-color", "#ffffff");
-            forceHexInClone(clonedEl as HTMLElement);
+            const root = clonedEl as HTMLElement;
+            root.style.setProperty("color", "#0f172a");
+            root.style.setProperty("background-color", "#ffffff");
+            forceHexInClone(root);
+            stripOklchInClone(root);
           },
         });
         const imgData = canvas.toDataURL("image/png");
@@ -375,10 +387,17 @@ export default function App() {
     } catch (err) {
       console.error("PDF export failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
-      if (typeof window !== "undefined" && window.alert) {
-        window.alert(`PDF 생성 중 오류가 발생했습니다. 브라우저에서 인쇄(Ctrl+P) 후 "PDF로 저장"을 선택해 주세요. (오류: ${msg})`);
+      if (typeof window !== "undefined") {
+        const usePrint = window.confirm(
+          `PDF 생성 중 오류가 발생했습니다. 브라우저에서 인쇄(Ctrl+P) 후 "PDF로 저장"을 선택해 주세요. 인쇄 창을 지금 열까요?`
+        );
+        if (usePrint) window.print();
       }
     }
+  };
+
+  const openPrintForPdf = () => {
+    window.print();
   };
 
   return (
@@ -558,6 +577,10 @@ export default function App() {
                 <div className="min-w-0" />
               </div>
               <div className="space-y-8">
+                <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                  <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">이 페이지에서 하는 일</h3>
+                  <p className="text-slate-800 font-medium leading-relaxed">본부별로 임원진이 도출한 AI 활용 희망 영역을 한눈에 보고, 팀에서 구체화할 과제를 선택합니다. 팀장/매니저는 본인 본부 또는 관심 과제를 선택한 뒤 다음 단계(임원진 비전 리뷰)로 진행하세요.</p>
+                </div>
                 <div className="space-y-3">
                   <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-50 text-[#ED1C24] rounded-full text-[10px] font-black uppercase tracking-widest border border-red-100">
                     <Sparkles size={12} /> Executive Vision Bridge
@@ -654,134 +677,106 @@ export default function App() {
               initial={{ opacity: 0, x: 30 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -30 }}
-              className="grid grid-cols-1 lg:grid-cols-3 gap-10"
+              className="space-y-10"
             >
-              <div className="lg:col-span-2 space-y-10">
-                <div className="bg-white rounded-[3rem] p-12 shadow-xl shadow-slate-200/50 border border-gray-100">
-                  <div className="flex items-center gap-4 mb-10">
-                    <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-[#ED1C24] shadow-inner">
-                      <Target size={32} />
-                    </div>
-                    <div>
-                      <h2 className="text-4xl font-black tracking-tighter text-slate-900">임원진 비전 리뷰</h2>
-                      <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Executive Needs Analysis</p>
-                    </div>
+              <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">이 페이지에서 하는 일</h3>
+                <p className="text-slate-800 font-medium leading-relaxed">선택한 과제에 대해 임원진이 작성한 AI 적용 희망 영역과, 과제 구체화를 위해 참고할 리뷰 내용을 확인합니다. 팀장/매니저는 &quot;임원진이 개선을 희망하는 업무 영역&quot;과 &quot;임원진은 왜 이 영역에 AI가 적용되길 기대하는가&quot;를 특히 참고한 뒤, 전략 구체화 단계로 진행하세요.</p>
+              </div>
+              <div className="bg-white rounded-[3rem] p-12 shadow-xl shadow-slate-200/50 border border-gray-100">
+                <div className="flex items-center gap-4 mb-10">
+                  <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center text-[#ED1C24] shadow-inner">
+                    <Target size={32} />
                   </div>
+                  <div>
+                    <h2 className="text-4xl font-black tracking-tighter text-slate-900">임원진 비전 리뷰</h2>
+                    <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Executive Needs Analysis</p>
+                  </div>
+                </div>
 
-                  <div className="space-y-14">
-                    <section className="rounded-[2rem] border-2 border-[#ED1C24]/20 bg-red-50/30 p-8">
-                      <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 rounded-xl bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">1</div>
-                        <div>
-                          <h3 className="text-lg font-black text-slate-900">임원진이 작성한 AI 적용 희망 영역을 확인해 보세요.</h3>
+                <div className="space-y-14">
+                  <section className="rounded-[2rem] border-2 border-[#ED1C24]/20 bg-red-50/30 p-8">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-10 h-10 rounded-xl bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">1</div>
+                      <div>
+                        <h3 className="text-lg font-black text-slate-900">임원진이 작성한 AI 적용 희망 영역을 확인해 보세요.</h3>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI를 적용하고 싶은 업무/영역</h4>
+                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedArea}</p>
+                      </div>
+                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI 적용이 필요한 이유</h4>
+                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</p>
+                      </div>
+                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI 적용 후 기대하는 변화</h4>
+                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedChange}</p>
+                      </div>
+                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">수행 조직/협업 범위</h4>
+                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.executingOrg}</p>
+                      </div>
+                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm md:col-span-2">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">구현 시 고려해야 할 사항</h4>
+                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.considerations}</p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-[2rem] border-2 border-slate-200 bg-slate-50/50 p-8">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center text-sm font-black">2</div>
+                      <div>
+                        <h3 className="text-lg font-black text-slate-900">과제를 구체화하기 위해 과제 리뷰내용을 참고하세요.</h3>
+                      </div>
+                    </div>
+                    <div className="space-y-5">
+                      <div className="p-5 bg-white rounded-xl border-2 border-[#ED1C24]/30 shadow-sm">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">임원진이 개선을 희망하는 업무 영역</h4>
+                        <p className="text-slate-800 text-base font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.oneLineSummary}</p>
+                      </div>
+                      <div className="p-5 bg-white rounded-xl border-2 border-[#ED1C24]/30 shadow-sm">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">임원진은 왜 이 영역에 AI가 적용되길 기대하는가</h4>
+                        <p className="text-slate-800 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</p>
+                      </div>
+                      <div className="p-6 bg-slate-900 text-white rounded-xl shadow-lg">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">AI 적용 시 기대되는 전체 워크플로우 예시</h4>
+                        <p className="text-slate-300 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.workflow)}</p>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="p-5 bg-white rounded-xl border border-slate-100">
+                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">팀장 관점 핵심 포인트</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.leaderKeyPoints)}</p>
+                        </div>
+                        <div className="p-5 bg-white rounded-xl border border-slate-100">
+                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">현실적인 구현 범위(힌트)</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.implementationScope)}</p>
                         </div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI를 적용하고 싶은 업무/영역</h4>
-                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedArea}</p>
-                        </div>
-                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI 적용이 필요한 이유</h4>
-                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</p>
-                        </div>
-                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI 적용 후 기대하는 변화</h4>
-                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedChange}</p>
-                        </div>
-                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">수행 조직/협업 범위</h4>
-                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.executingOrg}</p>
-                        </div>
-                        <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm md:col-span-2">
-                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">구현 시 고려해야 할 사항</h4>
-                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.considerations}</p>
-                        </div>
-                      </div>
-                    </section>
-
-                    <section className="rounded-[2rem] border-2 border-slate-200 bg-slate-50/50 p-8">
-                      <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center text-sm font-black">2</div>
-                        <div>
-                          <h3 className="text-lg font-black text-slate-900">과제를 구체화하기 위해 과제 리뷰내용을 참고하세요.</h3>
-                        </div>
-                      </div>
-                      <div className="space-y-5">
                         <div className="p-5 bg-white rounded-xl border border-slate-100">
-                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">핵심 한 줄 요약</h4>
-                          <p className="text-slate-800 text-base font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.oneLineSummary}</p>
-                        </div>
-                        <div className="p-6 bg-slate-900 text-white rounded-xl shadow-lg">
-                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">AI 적용 시 기대되는 전체 워크플로우 예시</h4>
-                          <p className="text-slate-300 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.workflow)}</p>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                          <div className="p-5 bg-white rounded-xl border border-slate-100">
-                            <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">팀장 관점 핵심 포인트</h4>
-                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.leaderKeyPoints)}</p>
-                          </div>
-                          <div className="p-5 bg-white rounded-xl border border-slate-100">
-                            <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">구체화 탐색 질문</h4>
-                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.explorationQuestions)}</p>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                          <div className="p-5 bg-white rounded-xl border border-slate-100">
-                            <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">현실적인 구현 범위(힌트)</h4>
-                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.implementationScope)}</p>
-                          </div>
-                          <div className="p-5 bg-white rounded-xl border border-slate-100">
-                            <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">구현 전 검토 사항</h4>
-                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.preReviewItems)}</p>
-                          </div>
+                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">구현 전 검토 사항</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.preReviewItems)}</p>
                         </div>
                         <div className="p-5 bg-amber-50 rounded-xl border border-amber-100">
                           <h4 className="text-sm font-black text-amber-800 tracking-tight mb-2">성공의 정의(평가 기준)</h4>
                           <p className="text-slate-800 text-sm font-bold leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.successDefinition)}</p>
                         </div>
                       </div>
-                    </section>
-                  </div>
-
-                  <div className="mt-16 flex justify-end">
-                    <button
-                      onClick={() => setCurrentStep('concretize')}
-                      className="px-10 py-5 bg-[#ED1C24] text-white rounded-2xl font-black text-lg flex items-center gap-3 hover:bg-[#D11920] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/20"
-                    >
-                      전략 구체화 시작하기 <ChevronRight size={24} />
-                    </button>
-                  </div>
+                    </div>
+                  </section>
                 </div>
-              </div>
 
-              <div className="space-y-8">
-                <div className="bg-slate-900 text-white rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden">
-                  <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-3xl" />
-                  <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-[#ED1C24]">
-                    <Sparkles size={24} /> 필수 확인 사항
-                  </h3>
-                  <p className="text-slate-300 text-sm leading-relaxed mb-6 font-medium">
-                    구현 단계로 넘기기 전에, 아래 관점에서 과제를 검토해 주세요.
-                  </p>
-                  <div className="space-y-5">
-                    <div className="flex items-start gap-4 group">
-                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">1</div>
-                      <p className="text-xs text-slate-300 font-bold leading-relaxed">임원진이 작성한 AI 적용 희망 영역을 확인해 주세요.</p>
-                    </div>
-                    <div className="flex items-start gap-4 group">
-                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">2</div>
-                      <p className="text-xs text-slate-300 font-bold leading-relaxed">다음으로 AI 적용 희망 영역을 구체화하기 위한 리뷰내용을 확인해 주세요.</p>
-                    </div>
-                    <div className="flex items-start gap-4 group">
-                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">3</div>
-                      <p className="text-xs text-slate-300 font-bold leading-relaxed">직책자 관점에서 근본적인 문제를 해결하기 위해 검토/개선되어야 할 영역을 명확히 규명하고, 현실적인 구현 범위를 설정하여 실무자가 구현할 수 있게 인계하는 것이 중요합니다.</p>
-                    </div>
-                    <div className="flex items-start gap-4 group">
-                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">4</div>
-                      <p className="text-xs text-slate-300 font-bold leading-relaxed">이러한 점을 충분히 검토한 후에, \"전략 구체화 시작하기\"를 클릭하여 다음 단계를 진행해 주세요.</p>
-                    </div>
-                  </div>
+                <div className="mt-16 flex justify-end">
+                  <button
+                    onClick={() => setCurrentStep('concretize')}
+                    className="px-10 py-5 bg-[#ED1C24] text-white rounded-2xl font-black text-lg flex items-center gap-3 hover:bg-[#D11920] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/20"
+                  >
+                    전략 구체화 시작하기 <ChevronRight size={24} />
+                  </button>
                 </div>
               </div>
             </motion.div>
@@ -814,31 +809,52 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div className="mb-10 p-6 rounded-2xl bg-slate-50 border border-slate-100">
+                    <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">이 페이지에서 하는 일</h3>
+                    <p className="text-slate-700 text-sm font-bold leading-relaxed mb-3">임원진이 제시한 AI 적용 희망 영역을 바탕으로, 과제를 구현자가 실행할 수 있도록 구체화합니다. 아래 5가지 질문에 답하며 Pain Point 원인, 개선 목표, AI 기대 변화, 성공 정의, 구현 시 고려사항을 정리해 주세요.</p>
+                    <p className="text-slate-500 text-xs font-medium">팀장/매니저 참고: 각 질문 옆 「AI와 대화」로 맥락을 보다 깊이 이해하고 답변을 다듬을 수 있습니다. 작성 후 저장을 눌러 두시면 이후 단계에서 불러올 수 있습니다.</p>
+                  </div>
+
                   <p className="text-slate-600 text-sm font-medium mb-10 leading-relaxed">아래 내용은 후속 과정에서 구현자(실무자)에게 인계할 수 있도록, 가능한 한 구체적으로 작성해 주세요.</p>
 
                   <div className="space-y-10">
                     {[
-                      { num: 1, key: 'q1', title: '현재는 해당 과업을 어떻게 수행하고 있는지 상세하게 정리해주세요.', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideText: concretizeGuides.q1 || '' },
-                      { num: 2, key: 'q2', title: '현재의 수행방식으로 인해 발생된 비효율 및 개선 포인트는 무엇인가요?', value: concretize.q2, onChange: (v: string) => setConcretize(prev => ({ ...prev, q2: v })), guideText: concretizeGuides.q2 || '' },
-                      { num: 3, key: 'q4', title: '선택한 과업이 AI를 기반으로 어떻게 생산성이 향상되기를 기대하십니까?', value: concretize.q4, onChange: (v: string) => setConcretize(prev => ({ ...prev, q4: v })), guideText: concretizeGuides.q4 || '' },
-                      { num: 4, key: 'q5', title: '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 포함되어야 할 것은 무엇입니까?', value: concretize.q5, onChange: (v: string) => setConcretize(prev => ({ ...prev, q5: v })), guideText: concretizeGuides.q5 || '' },
-                      { num: 5, key: 'q6', title: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가요?', value: concretize.q6, onChange: (v: string) => setConcretize(prev => ({ ...prev, q6: v })), guideText: concretizeGuides.q6 || '' },
-                    ].map(({ num, title, value, onChange, guideText }) => (
+                      { num: 1, key: 'q1', title: '임원이 제시한 Pain Point는 왜 발생하는 것인가요?', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideText: concretizeGuides.q1 || '', sub: 'AI 적용이 필요하다고 임원이 판단한 이유를 기반으로, 현업에서 그 이유가 왜 발생하는지 규명해 주세요.' },
+                      { num: 2, key: 'q2', title: '이 문제를 해결하기 위해 반드시 개선되어야 하는 것은 무엇입니까?', value: concretize.q2, onChange: (v: string) => setConcretize(prev => ({ ...prev, q2: v })), guideText: concretizeGuides.q2 || '', sub: '' },
+                      { num: 3, key: 'q3', title: '개선되어야 하는 과업이 AI를 기반으로 어떻게 변화되길 기대하십니까?', value: concretize.q3, onChange: (v: string) => setConcretize(prev => ({ ...prev, q3: v })), guideText: concretizeGuides.q3 || '', sub: '' },
+                      { num: 4, key: 'q4', title: '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?', value: concretize.q4, onChange: (v: string) => setConcretize(prev => ({ ...prev, q4: v })), guideText: concretizeGuides.q4 || '', sub: '' },
+                      { num: 5, key: 'q5', title: '구현 과정에서 구현자가 반드시 고려해야 할 사항은 무엇입니까?', value: concretize.q5, onChange: (v: string) => setConcretize(prev => ({ ...prev, q5: v })), guideText: concretizeGuides.q5 || '', sub: '특정 단계에서 상급자 컨펌, 준수 사항 등을 포함해 주세요.' },
+                    ].map(({ num, title, value, onChange, guideText, sub }, idx) => (
                       <section key={num} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-6">
                         <div className="flex items-center gap-3 mb-3">
                           <div className="w-8 h-8 rounded-lg bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">{num}</div>
-                          <h3 className="text-lg font-black text-slate-800">{title}</h3>
+                          <div>
+                            <h3 className="text-lg font-black text-slate-800">{title}</h3>
+                            {sub ? <p className="text-slate-500 text-xs font-medium mt-1">{sub}</p> : null}
+                          </div>
                         </div>
-                          <div className="mb-4 p-4 bg-white rounded-xl border border-slate-100">
+                        <div className="mb-4 p-4 bg-white rounded-xl border border-slate-100">
                           <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">작성 가이드</p>
                           <div className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{formatGuideText(guideText) || (isGuideLoading ? '가이드를 생성 중입니다…' : '가이드를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')}</div>
                         </div>
-                        <textarea
-                          value={value}
-                          onChange={(e) => onChange(e.target.value)}
-                          placeholder="구현자가 바로 이해할 수 있도록 구체적으로 작성해 주세요."
-                          className="w-full min-h-[100px] p-4 bg-white rounded-xl border border-slate-200 focus:border-[#ED1C24] focus:ring-2 focus:ring-red-100 outline-none text-sm font-medium leading-relaxed transition-all"
-                        />
+                        <div className="flex gap-3">
+                          <textarea
+                            value={value}
+                            onChange={(e) => onChange(e.target.value)}
+                            placeholder="구현자가 바로 이해할 수 있도록 구체적으로 작성해 주세요."
+                            className="flex-1 min-h-[100px] p-4 bg-white rounded-xl border border-slate-200 focus:border-[#ED1C24] focus:ring-2 focus:ring-red-100 outline-none text-sm font-medium leading-relaxed transition-all"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => { setConcretizeChatQuestionIndex(idx); setConcretizeChatReply(''); setConcretizeChatInput(''); }}
+                            className={cn(
+                              "shrink-0 self-start px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                              concretizeChatQuestionIndex === idx ? "bg-[#ED1C24] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                            )}
+                          >
+                            AI와 대화
+                          </button>
+                        </div>
                       </section>
                     ))}
                   </div>
@@ -857,30 +873,58 @@ export default function App() {
 
               <div className="space-y-8">
                 <div className="bg-slate-900 text-white rounded-[2.5rem] p-8 sticky top-32">
-                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><FileText size={20} /> 작성시 직책자가 고려해야 할 것</h3>
-                  <div className="space-y-6 text-slate-300 text-sm font-medium leading-relaxed">
-                    <div>
-                      <div className="text-white font-black mb-2">1) 문제와 비효율을 “검증 가능”하게 만들기</div>
-                      <ul className="space-y-2">
-                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>현상은 <strong className="text-white">수치/증거</strong>로 작성 (예: 월 120건, 평균 25분/건, 오류 3%)</span></li>
-                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>개선 포인트는 “왜 비효율인지”를 <strong className="text-white">원인-결과</strong>로 연결</span></li>
-                      </ul>
+                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><Sparkles size={20} /> 질문별 AI 맥락 대화</h3>
+                  <p className="text-slate-300 text-xs font-medium mb-4">선택한 질문의 맥락을 더 깊이 이해하고 답변을 다듬고 싶을 때, AI와 대화해 보세요.</p>
+                  {concretizeChatQuestionIndex !== null ? (
+                    <div className="space-y-4">
+                      <p className="text-slate-400 text-xs font-bold">
+                        질문 {concretizeChatQuestionIndex + 1}: {[
+                          '임원이 제시한 Pain Point는 왜 발생하는 것인가요?',
+                          '이 문제를 해결하기 위해 반드시 개선되어야 하는 것은 무엇입니까?',
+                          '개선되어야 하는 과업이 AI를 기반으로 어떻게 변화되길 기대하십니까?',
+                          '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?',
+                          '구현 과정에서 구현자가 반드시 고려해야 할 사항은 무엇입니까?',
+                        ][concretizeChatQuestionIndex]}
+                      </p>
+                      <textarea
+                        value={concretizeChatInput}
+                        onChange={(e) => setConcretizeChatInput(e.target.value)}
+                        placeholder="질문에 대한 생각이나 초안을 입력하면 AI가 피드백을 드립니다."
+                        className="w-full min-h-[80px] p-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#ED1C24]"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!concretizeChatInput.trim() || selectedTask == null) return;
+                          setIsAiLoading(true);
+                          setConcretizeChatReply('');
+                          try {
+                            const stepName = `concretize_q${concretizeChatQuestionIndex! + 1}`;
+                            const reply = await getAiCoaching(selectedTask, stepName, concretizeChatInput);
+                            setConcretizeChatReply(reply || '');
+                          } catch (e) {
+                            setConcretizeChatReply('응답을 불러오지 못했습니다. 다시 시도해 주세요.');
+                          } finally {
+                            setIsAiLoading(false);
+                          }
+                        }}
+                        disabled={isAiLoading || !concretizeChatInput.trim()}
+                        className="w-full py-2.5 rounded-xl bg-[#ED1C24] text-white text-sm font-black disabled:opacity-50"
+                      >
+                        {isAiLoading ? '응답 생성 중…' : 'AI에게 질문하기'}
+                      </button>
+                      {concretizeChatReply ? (
+                        <div className="p-4 rounded-xl bg-white/10 border border-white/20 text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
+                          <Markdown>{concretizeChatReply}</Markdown>
+                        </div>
+                      ) : null}
+                      <button type="button" onClick={() => { setConcretizeChatQuestionIndex(null); setConcretizeChatReply(''); setConcretizeChatInput(''); }} className="text-slate-400 text-xs font-bold hover:text-white">
+                        패널 닫기
+                      </button>
                     </div>
-                    <div>
-                      <div className="text-white font-black mb-2">2) AI 적용 후 기대 효과를 “업무 산출물” 관점으로 구체화</div>
-                      <ul className="space-y-2">
-                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>결과물의 <strong className="text-white">형태(리포트/대시보드/추천안)</strong>와 품질 기준(정확도/누락율)을 명시</span></li>
-                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>사람이 최종 승인해야 하는 지점(검토/결재)을 구분</span></li>
-                      </ul>
-                    </div>
-                    <div>
-                      <div className="text-white font-black mb-2">3) 구현 범위를 현실화하고 인계 가능 형태로 만들기</div>
-                      <ul className="space-y-2">
-                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>“반드시 포함” 기능과 “추후” 기능을 분리 (MVP 범위 고정)</span></li>
-                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>필요 데이터/권한/시스템 연동을 사전에 체크해 실무자가 바로 착수할 수 있게 작성</span></li>
-                      </ul>
-                    </div>
-                  </div>
+                  ) : (
+                    <p className="text-slate-500 text-xs">왼쪽 질문 옆 「AI와 대화」 버튼을 누르면 이곳에서 해당 질문에 대해 AI와 대화할 수 있습니다.</p>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -894,17 +938,31 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="space-y-10"
             >
+              <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100 mb-8">
+                <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">이 페이지에서 하는 일</h3>
+                <p className="text-slate-700 text-sm font-bold leading-relaxed mb-2">최종 AX 과업지시서를 확인하고, 필요 시 PDF로 저장하거나 인쇄하여 활용할 수 있습니다. PDF 생성 오류 시 브라우저 인쇄(Ctrl+P) 후 「PDF로 저장」을 선택해 주세요.</p>
+                <p className="text-slate-500 text-xs font-medium">팀장/매니저 참고: 보고서는 임원진 리뷰·과제 구체화 내용을 반영한 롯데웰푸드 양식입니다.</p>
+              </div>
               <div className="flex justify-between items-center">
                 <div className="space-y-2">
                   <h2 className="text-4xl font-black tracking-tighter text-slate-900">최종 AX 과업지시서</h2>
                   <p className="text-slate-500 font-medium text-lg">작성된 내용을 바탕으로 롯데웰푸드 양식의 보고서가 생성되었습니다.</p>
                 </div>
-                <button
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="px-6 py-3 bg-slate-600 text-white rounded-2xl font-black flex items-center gap-2 hover:bg-slate-700"
+                  >
+                    인쇄하여 PDF 저장
+                  </button>
+                  <button
                   onClick={exportToPDF}
                   className="px-8 py-4 bg-[#ED1C24] text-white rounded-2xl font-black text-lg flex items-center gap-3 hover:bg-[#D11920] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/20"
                 >
                   <Download size={24} /> PDF 다운로드
                 </button>
+                </div>
               </div>
 
               <div id="report-content" className="pdf-safe bg-white shadow-2xl mx-auto max-w-[900px] p-16 border border-gray-100 min-h-[1200px] rounded-[3rem]">
@@ -938,8 +996,10 @@ export default function App() {
                     <div className="grid grid-cols-4 gap-px bg-gray-100 border border-gray-100 rounded-2xl overflow-hidden">
                       <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">과제명</div>
                       <div className="col-span-3 bg-white p-6 text-lg font-black text-slate-900">{selectedTask.expectedArea}</div>
-                      <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">임원 제시 내용</div>
+                      <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">임원진이 개선을 희망하는 업무 영역</div>
                       <div className="col-span-3 bg-white p-6 text-base font-bold text-slate-600 leading-relaxed">{selectedTask.oneLineSummary}</div>
+                      <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">임원진은 왜 이 영역에 AI가 적용되길 기대하는가</div>
+                      <div className="col-span-3 bg-white p-6 text-base font-bold text-slate-600 leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</div>
                       <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">기대 변화</div>
                       <div className="col-span-3 bg-white p-6 text-base font-bold text-emerald-600 leading-relaxed whitespace-pre-wrap">{selectedTask.expectedChange}</div>
                       <div className="bg-slate-50 p-6 text-xs font-black text-slate-400 uppercase tracking-widest">수행 조직</div>
@@ -952,7 +1012,7 @@ export default function App() {
                   <section>
                     <div className="flex items-center gap-3 bg-slate-900 text-white px-6 py-3 rounded-2xl mb-8 shadow-lg">
                       <RefreshCw size={20} className="text-[#ED1C24]" />
-                      <span className="text-lg font-black uppercase tracking-tight">2. 전략적 가이드 및 워크플로우</span>
+                      <span className="text-lg font-black uppercase tracking-tight">2. 전략적 가이드 및 워크플로우 (AI가 검토한 리뷰 내용)</span>
                     </div>
                     <div className="space-y-6">
                       <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100">
@@ -979,11 +1039,11 @@ export default function App() {
                     </div>
                     <div className="space-y-6">
                       {[
-                        { label: '현재는 해당 과업을 어떻게 수행하고 있는지 상세하게 정리해주세요.', value: concretize.q1 },
-                        { label: '현재의 수행방식으로 인해 발생된 비효율 및 개선 포인트는 무엇인가요?', value: concretize.q2 },
-                        { label: '선택한 과업이 AI를 기반으로 어떻게 생산성이 향상되기를 기대하십니까?', value: concretize.q4 },
-                        { label: '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 포함되어야 할 것은 무엇입니까?', value: concretize.q5 },
-                        { label: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가요?', value: concretize.q6 },
+                        { label: '임원이 제시한 Pain Point는 왜 발생하는 것인가요?', value: concretize.q1 },
+                        { label: '이 문제를 해결하기 위해 반드시 개선되어야 하는 것은 무엇입니까?', value: concretize.q2 },
+                        { label: '개선되어야 하는 과업이 AI를 기반으로 어떻게 변화되길 기대하십니까?', value: concretize.q3 },
+                        { label: '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?', value: concretize.q4 },
+                        { label: '구현 과정에서 구현자가 반드시 고려해야 할 사항은 무엇입니까?', value: concretize.q5 },
                       ].map(({ label, value }, i) => (
                         <div key={i} className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
                           <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">{i + 1}. {label}</h4>

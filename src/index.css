@@ -66,3 +66,23 @@
 .markdown-body li {
   @apply mb-1;
 }
+
+/* 인쇄 시 보고서만 표시 (PDF로 저장 시 사용) */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #report-content,
+  #report-content * {
+    visibility: visible;
+  }
+  #report-content {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 100%;
+    box-shadow: none;
+    background: #fff;
+  }
+}
