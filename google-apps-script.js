@@ -21,7 +21,12 @@ function doGet() {
   
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
-  const rows = data.slice(1);
+  const rows = data.slice(1).filter(function(row) {
+    // 빈 행 제외: A열(본부) 또는 C열(기대영역) 중 하나라도 있으면 포함
+    var hasDept = row[0] !== undefined && String(row[0]).trim() !== "";
+    var hasArea = row[2] !== undefined && String(row[2]).trim() !== "";
+    return hasDept || hasArea;
+  });
   
   const result = rows.map((row, index) => {
     const obj = { 

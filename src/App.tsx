@@ -35,7 +35,6 @@ export default function App() {
   const [currentStep, setCurrentStep] = useState<Step>('dashboard');
   const [tasks, setTasks] = useState<ExecutiveTask[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
-  const [isDemoMode, setIsDemoMode] = useState(false);
   const [selectedTask, setSelectedTask] = useState<ExecutiveTask | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState<string>('전체');
   const [definition, setDefinition] = useState<ProjectDefinition>({
@@ -70,7 +69,6 @@ export default function App() {
     setIsLoadingTasks(true);
     const result = await fetchTasks();
     setTasks(result.tasks);
-    setIsDemoMode(result.isDemoMode);
     setIsLoadingTasks(false);
   };
 
@@ -144,11 +142,6 @@ export default function App() {
               <h1 className="text-lg font-extrabold tracking-tight text-[#ED1C24]">Vision to Action</h1>
               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">AX Strategy Builder</p>
             </div>
-            {isDemoMode && (
-              <div className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-widest rounded-full border border-amber-200 animate-pulse">
-                Demo Mode
-              </div>
-            )}
           </div>
         </div>
         
@@ -191,11 +184,10 @@ export default function App() {
                     <Sparkles size={12} /> Executive Vision Bridge
                   </div>
                   <h2 className="text-5xl font-black tracking-tighter text-slate-900 leading-none">본부별 <span className="text-[#ED1C24]">AI 활용 영역</span> 대시보드</h2>
-                  <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed">임원진이 도출한 AI 활용 영역을 확인하고, 팀의 역량을 집중할 핵심 과제를 선택하여 구체화하세요.</p>
+                  <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed whitespace-nowrap">임원진이 도출한 AI 활용 영역을 확인하고, 팀의 역량을 집중할 핵심 과제를 선택하여 구체화하세요.</p>
                 </div>
                 {/* 부제 하단: 구글 시트 A열 기준 전체 본부 선택 버튼 */}
                 <div className="flex flex-wrap items-center gap-2 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mr-2">본부 선택</span>
                   {departments.map(dept => (
                     <button
                       key={dept}
