@@ -50,6 +50,30 @@ async function startServer() {
     }
   });
 
+  // GET: 작성내용 조회 (type=written)
+  app.get("/api/written", async (req, res) => {
+    const SHEET_API_URL =
+      process.env.VITE_SHEET_API_URL ||
+      "https://script.google.com/macros/s/AKfycbyPCZRENZ__YkgqrQ_ixO8GuXFaKrcfta-3Oprze_YcDMwpjKlxpRPoKr_vBJ2qJ2OP/exec";
+    try {
+      const url = new URL(SHEET_API_URL);
+      url.searchParams.set("type", "written");
+      if (typeof req.query.userKey === "string") url.searchParams.set("userKey", req.query.userKey);
+      if (typeof req.query.taskId === "string") url.searchParams.set("taskId", req.query.taskId);
+
+      // @ts-ignore - Node 18+ has global fetch
+      const response = await fetch(url.toString(), { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return res.status(response.status).json(data || { error: `Google API returned ${response.status}` });
+      }
+      res.json(data);
+    } catch (error: any) {
+      console.error("Written fetch error:", error);
+      res.status(500).json({ error: error.message || "Internal Server Error" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

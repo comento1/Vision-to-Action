@@ -71,3 +71,57 @@ export async function suggestKpis(task: ExecutiveTask) {
 
   return JSON.parse(response.text || "{}");
 }
+
+export async function getConcretizeGuides(task: ExecutiveTask) {
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `
+당신은 롯데웰푸드의 AX(AI Transformation) 실무 가이드 작성자입니다.
+팀장이 임원 리뷰 내용을 바탕으로 '구현자(실무자)에게 인계 가능한 수준'으로 과제를 구체화하도록 돕습니다.
+
+[과제 정보]
+- 과제명(희망 영역): ${task.expectedArea}
+- 본부: ${task.department}
+
+[임원 요약]
+${task.oneLineSummary}
+
+[리뷰 참고 내용]
+- 기대이유: ${task.reason}
+- 기대변화: ${task.expectedChange}
+- 고려사항: ${task.considerations}
+- 워크플로우: ${task.workflow}
+- 팀장 관점 포인트: ${task.leaderKeyPoints}
+- 탐색 질문: ${task.explorationQuestions}
+- 구현 범위(힌트): ${task.implementationScope}
+- 구현 전 검토 사항: ${task.preReviewItems}
+- 성공 정의: ${task.successDefinition}
+
+아래 5개 질문 각각에 대해, 팀장이 작성할 때 참고할 수 있는 가이드를 3~5개의 불릿으로 작성하세요.
+- 가이드는 '무엇을/어떻게'를 명확히 제시하고, 구체적인 예시/체크포인트를 포함하세요.
+- 회사 내부 용어는 과도하게 어렵지 않게, 실무자가 바로 이해할 수 있게 쓰세요.
+
+질문:
+q1: 개선하고자 하는 대상 과업을 현재는 어떻게 수행하고 있는지 정리해 주세요.
+q2: 현재의 수행방식으로 인해 발생된 병목 및 비효율은 무엇인가요?
+q4: 병목 및 비효율이 AI 기반으로 어떻게 해소되길 기대하십니까?
+q5: 이 문제가 성공적으로 해소되었다고 판단하기 위해 무엇이 달성되거나, 구현된 결과물에 포함되어 있어야 합니까?
+q6: 구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가요?
+`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          q1: { type: Type.STRING },
+          q2: { type: Type.STRING },
+          q4: { type: Type.STRING },
+          q5: { type: Type.STRING },
+          q6: { type: Type.STRING },
+        },
+      },
+    },
+  });
+
+  return JSON.parse(response.text || "{}") as { q1?: string; q2?: string; q4?: string; q5?: string; q6?: string };
+}

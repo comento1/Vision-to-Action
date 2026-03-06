@@ -13,6 +13,40 @@
   }
 }
 
+/* PDF 캡처(html2canvas)에서 OKLCH 색상 파싱 오류 방지용 */
+.pdf-safe,
+.pdf-safe * {
+  /* 그림자 색상 파싱을 피하기 위해 제거 */
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+.pdf-safe {
+  background-color: #ffffff !important;
+}
+
+/* Tailwind v4 기본 팔레트(OKLCH) → hex로 덮어쓰기 */
+.pdf-safe .bg-slate-900 { background-color: #0f172a !important; }
+.pdf-safe .bg-slate-50 { background-color: #f8fafc !important; }
+.pdf-safe .bg-gray-100 { background-color: #f3f4f6 !important; }
+.pdf-safe .bg-white { background-color: #ffffff !important; }
+.pdf-safe .bg-red-50 { background-color: #fef2f2 !important; }
+.pdf-safe .bg-amber-50 { background-color: #fffbeb !important; }
+
+.pdf-safe .text-slate-900 { color: #0f172a !important; }
+.pdf-safe .text-slate-800 { color: #1f2937 !important; }
+.pdf-safe .text-slate-700 { color: #334155 !important; }
+.pdf-safe .text-slate-600 { color: #475569 !important; }
+.pdf-safe .text-slate-500 { color: #64748b !important; }
+.pdf-safe .text-slate-400 { color: #94a3b8 !important; }
+.pdf-safe .text-slate-300 { color: #cbd5e1 !important; }
+.pdf-safe .text-emerald-600 { color: #059669 !important; }
+
+.pdf-safe .border-slate-100 { border-color: #e2e8f0 !important; }
+.pdf-safe .border-slate-200 { border-color: #cbd5e1 !important; }
+.pdf-safe .border-gray-100 { border-color: #f3f4f6 !important; }
+.pdf-safe .border-gray-200 { border-color: #e5e7eb !important; }
+
 .markdown-body {
   @apply text-sm leading-relaxed;
 }

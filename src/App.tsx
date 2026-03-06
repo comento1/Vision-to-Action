@@ -22,8 +22,8 @@ import { MOCK_TASKS } from './constants';
 import { ExecutiveTask, ProjectDefinition, Department, ConcretizeForm } from './types';
 import { cn } from './lib/utils';
 import Markdown from 'react-markdown';
-import { getAiCoaching, suggestKpis } from './services/geminiService';
-import { fetchTasks, saveWrittenContent } from './services/sheetService';
+import { getAiCoaching, suggestKpis, getConcretizeGuides } from './services/geminiService';
+import { fetchTasks, saveWrittenContent, fetchWrittenContents, type UserProfile, type WrittenEntry } from './services/sheetService';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -37,6 +37,11 @@ export default function App() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [selectedTask, setSelectedTask] = useState<ExecutiveTask | null>(null);
   const [departmentFilter, setDepartmentFilter] = useState<string>('전체');
+  const [profile, setProfile] = useState<UserProfile>({ org: '', name: '', title: '' });
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(true);
+  const [writtenEntries, setWrittenEntries] = useState<WrittenEntry[]>([]);
+  const [isWrittenModalOpen, setIsWrittenModalOpen] = useState(false);
+  const [writtenLoadError, setWrittenLoadError] = useState<string>('');
   const [definition, setDefinition] = useState<ProjectDefinition>({
     taskId: '',
     painPointDetail: '',
@@ -56,14 +61,36 @@ export default function App() {
   const [aiCoaching, setAiCoaching] = useState<string>('');
   const [suggestedKpis, setSuggestedKpis] = useState<{ quantitative: string[], qualitative: string[] }>({ quantitative: [], qualitative: [] });
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [concretizeGuides, setConcretizeGuides] = useState<{ q1?: string; q2?: string; q4?: string; q5?: string; q6?: string }>({});
   const [concretize, setConcretize] = useState<ConcretizeForm>({
     q1: '', q2: '', q3: '', q4: '', q5: '', q6: '',
   });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [isGuideLoading, setIsGuideLoading] = useState(false);
 
   useEffect(() => {
     loadTasks();
   }, []);
+
+  useEffect(() => {
+    const loadGuides = async () => {
+      if (currentStep !== 'concretize' || !selectedTask) return;
+      setIsGuideLoading(true);
+      try {
+        const guides = await getConcretizeGuides(selectedTask);
+        setConcretizeGuides(guides || {});
+      } catch (e) {
+        console.error('Guide generation error:', e);
+      } finally {
+        setIsGuideLoading(false);
+      }
+    };
+    loadGuides();
+  }, [currentStep, selectedTask]);
+  useEffect(() => {
+    // 페이지 이동 시 항상 상단으로 이동
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentStep]);
 
   const loadTasks = async () => {
     setIsLoadingTasks(true);
@@ -82,6 +109,67 @@ export default function App() {
     setSelectedTask(task);
     setDefinition(prev => ({ ...prev, taskId: task.id }));
     setCurrentStep('review');
+  };
+
+  const loadWrittenEntries = async (p: UserProfile) => {
+    setWrittenLoadError('');
+    const result = await fetchWrittenContents(p);
+    if (result.error) setWrittenLoadError(result.error);
+    setWrittenEntries(result.items || []);
+  };
+
+  const selectWrittenEntry = (entry: WrittenEntry) => {
+    const task = tasks.find(t => t.id === entry.taskId);
+    if (task) {
+      setSelectedTask(task);
+      setDepartmentFilter('전체');
+      setConcretize({
+        q1: entry.concretize.q1 || '',
+        q2: entry.concretize.q2 || '',
+        q3: entry.concretize.q3 || '',
+        q4: entry.concretize.q4 || '',
+        q5: entry.concretize.q5 || '',
+        q6: entry.concretize.q6 || '',
+      });
+      setCurrentStep('concretize');
+      setIsWrittenModalOpen(false);
+      return;
+    }
+    // 과제 목록에 없는 경우에도 입력값은 유지하고, 대시보드에서 해당 과제를 다시 선택하도록 유도
+    setConcretize({
+      q1: entry.concretize.q1 || '',
+      q2: entry.concretize.q2 || '',
+      q3: entry.concretize.q3 || '',
+      q4: entry.concretize.q4 || '',
+      q5: entry.concretize.q5 || '',
+      q6: entry.concretize.q6 || '',
+    });
+    setIsWrittenModalOpen(false);
+  };
+
+  const handleGoToExport = async () => {
+    if (!selectedTask) return;
+    setSaveStatus('saving');
+    const result = await saveWrittenContent({
+      taskId: selectedTask.id,
+      department: selectedTask.department,
+      expectedArea: selectedTask.expectedArea,
+      user: profile,
+      concretize: {
+        q1: concretize.q1,
+        q2: concretize.q2,
+        q3: '', // 문항 삭제(보존용 컬럼은 빈 값)
+        q4: concretize.q4,
+        q5: concretize.q5,
+        q6: concretize.q6,
+      },
+    });
+    setSaveStatus(result.success ? 'saved' : 'error');
+    setCurrentStep('export');
+    // 저장 후 최신 작성내용 다시 조회 (대시보드의 '기존 작성내용' 업데이트)
+    if (profile.org && profile.name && profile.title) {
+      await loadWrittenEntries(profile);
+    }
   };
 
   const handleAiCoaching = async (stepName: string, input: string) => {
@@ -127,6 +215,113 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#212529] font-sans">
+      {isProfileModalOpen && (
+        <div className="fixed inset-0 z-[999] bg-black/50 flex items-center justify-center p-6">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-gray-100 p-8">
+            <h2 className="text-2xl font-black text-slate-900 mb-2">접속 정보 입력</h2>
+            <p className="text-slate-500 text-sm font-medium mb-6">작성 내용을 구현자(실무자)에게 인계할 수 있도록, 아래 정보를 입력해 주세요.</p>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700">소속 본부</label>
+                <input
+                  value={profile.org}
+                  onChange={(e) => setProfile(prev => ({ ...prev, org: e.target.value }))}
+                  placeholder="예: 글로벌사업본부"
+                  className="w-full p-4 rounded-2xl border border-slate-200 focus:border-[#ED1C24] outline-none font-medium"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700">이름</label>
+                  <input
+                    value={profile.name}
+                    onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="예: 홍길동"
+                    className="w-full p-4 rounded-2xl border border-slate-200 focus:border-[#ED1C24] outline-none font-medium"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700">직급</label>
+                  <input
+                    value={profile.title}
+                    onChange={(e) => setProfile(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="예: 팀장"
+                    className="w-full p-4 rounded-2xl border border-slate-200 focus:border-[#ED1C24] outline-none font-medium"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 flex items-center justify-end gap-3">
+              <button
+                onClick={async () => {
+                  if (!profile.org.trim() || !profile.name.trim() || !profile.title.trim()) return;
+                  setIsProfileModalOpen(false);
+                  await loadWrittenEntries(profile);
+                }}
+                disabled={!profile.org.trim() || !profile.name.trim() || !profile.title.trim()}
+                className="px-6 py-3 rounded-2xl bg-[#ED1C24] text-white font-black disabled:opacity-40"
+              >
+                시작하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isWrittenModalOpen && (
+        <div className="fixed inset-0 z-[998] bg-black/50 flex items-center justify-center p-6">
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-gray-100 p-8">
+            <div className="flex items-start justify-between gap-6">
+              <div>
+                <h2 className="text-2xl font-black text-slate-900 mb-1">기존 작성내용 확인하기</h2>
+                <p className="text-slate-500 text-sm font-medium">이름/직급 기준으로 저장된 작성내용을 불러옵니다. 항목을 선택하면 이어서 수정할 수 있습니다.</p>
+              </div>
+              <button
+                onClick={() => setIsWrittenModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-50"
+              >
+                닫기
+              </button>
+            </div>
+
+            {writtenLoadError && (
+              <div className="mt-5 p-4 rounded-2xl bg-amber-50 border border-amber-100 text-amber-800 text-sm font-bold">
+                {writtenLoadError}
+              </div>
+            )}
+
+            <div className="mt-6 space-y-3 max-h-[55vh] overflow-auto pr-1">
+              {writtenEntries.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100 text-slate-600 text-sm font-bold">
+                  저장된 작성내용이 없습니다.
+                </div>
+              ) : (
+                writtenEntries
+                  .slice()
+                  .reverse()
+                  .map((entry, idx) => (
+                    <button
+                      key={`${entry.taskId}-${idx}`}
+                      onClick={() => selectWrittenEntry(entry)}
+                      className="w-full text-left p-5 rounded-2xl border border-slate-100 hover:border-[#ED1C24]/30 hover:bg-red-50/20 transition-all"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="text-sm font-black text-slate-900">{entry.expectedArea || entry.taskId}</div>
+                          <div className="text-xs font-bold text-slate-500 mt-1">{entry.taskDepartment}</div>
+                        </div>
+                        <div className="text-xs font-mono font-bold text-slate-400">{entry.taskId}</div>
+                      </div>
+                    </button>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-6">
@@ -184,7 +379,17 @@ export default function App() {
                     <Sparkles size={12} /> Executive Vision Bridge
                   </div>
                   <h2 className="text-5xl font-black tracking-tighter text-slate-900 leading-none">본부별 <span className="text-[#ED1C24]">AI 활용 영역</span> 대시보드</h2>
-                  <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed whitespace-nowrap">임원진이 도출한 AI 활용 영역을 확인하고, 팀의 역량을 집중할 핵심 과제를 선택하여 구체화하세요.</p>
+                  <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+                    <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed whitespace-nowrap">임원진이 도출한 AI 활용 영역을 확인하고, 팀의 역량을 집중할 핵심 과제를 선택하여 구체화하세요.</p>
+                    {writtenEntries.length > 0 && (
+                      <button
+                        onClick={() => setIsWrittenModalOpen(true)}
+                        className="w-fit px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-black hover:bg-slate-800 transition-all"
+                      >
+                        기존 작성내용 확인하기
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {/* 부제 하단: 구글 시트 A열 기준 전체 본부 선택 버튼 */}
                 <div className="flex flex-wrap items-center gap-2 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
@@ -290,79 +495,75 @@ export default function App() {
                   </div>
 
                   <div className="space-y-14">
-                    {/* 구역 1: 임원이 도출한 내용 (C~G열) */}
                     <section className="rounded-[2rem] border-2 border-[#ED1C24]/20 bg-red-50/30 p-8">
                       <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 rounded-xl bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">C~G</div>
+                        <div className="w-10 h-10 rounded-xl bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">1</div>
                         <div>
-                          <h3 className="text-lg font-black text-slate-900">임원이 도출한 내용</h3>
-                          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">과제리뷰 C~G열</p>
+                          <h3 className="text-lg font-black text-slate-900">임원진이 작성한 AI 적용 희망 영역을 확인해 보세요.</h3>
                         </div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">C열 · AI 적용 기대영역</h4>
+                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI를 적용하고 싶은 업무/영역</h4>
                           <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedArea}</p>
                         </div>
                         <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">D열 · AI 적용 기대이유</h4>
+                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI 적용이 필요한 이유</h4>
                           <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</p>
                         </div>
                         <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">E열 · 기대하는 변화의 모습</h4>
+                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI 적용 후 기대하는 변화</h4>
                           <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedChange}</p>
                         </div>
                         <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">F열 · 수행 조직</h4>
+                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">수행 조직/협업 범위</h4>
                           <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.executingOrg}</p>
                         </div>
                         <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm md:col-span-2">
-                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-2">G열 · 구현 간 고려사항</h4>
+                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">구현 시 고려해야 할 사항</h4>
                           <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.considerations}</p>
                         </div>
                       </div>
                     </section>
 
-                    {/* 구역 2: 과제리뷰 참고 자료 (H~N열) */}
                     <section className="rounded-[2rem] border-2 border-slate-200 bg-slate-50/50 p-8">
                       <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center text-sm font-black">H~N</div>
+                        <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center text-sm font-black">2</div>
                         <div>
-                          <h3 className="text-lg font-black text-slate-900">과제리뷰 참고 자료</h3>
-                          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">리뷰 시 참고하도록 배치한 내용 (H~N열)</p>
+                          <h3 className="text-lg font-black text-slate-900">과제를 구체화하기 위해 과제 리뷰내용을 참고하세요.</h3>
                         </div>
                       </div>
                       <div className="space-y-5">
                         <div className="p-5 bg-white rounded-xl border border-slate-100">
-                          <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">H열 · 핵심 한 줄 요약</h4>
+                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">핵심 한 줄 요약</h4>
                           <p className="text-slate-800 text-base font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.oneLineSummary}</p>
                         </div>
                         <div className="p-6 bg-slate-900 text-white rounded-xl shadow-lg">
-                          <h4 className="text-[10px] font-black text-[#ED1C24] uppercase tracking-widest mb-3">I열 · 전체 과업 워크플로우</h4>
+                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">현재 업무 흐름(워크플로우) 참고</h4>
                           <p className="text-slate-300 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.workflow}</p>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                           <div className="p-5 bg-white rounded-xl border border-slate-100">
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">J열 · 팀장 관점 핵심 포인트</h4>
+                            <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">팀장 관점 핵심 포인트</h4>
                             <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.leaderKeyPoints}</p>
                           </div>
                           <div className="p-5 bg-white rounded-xl border border-slate-100">
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">K열 · 과제 구체화 탐색 질문</h4>
+                            <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">구체화 탐색 질문</h4>
                             <p className="text-slate-700 text-sm font-medium leading-relaxed italic whitespace-pre-wrap">{selectedTask.explorationQuestions}</p>
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                           <div className="p-5 bg-white rounded-xl border border-slate-100">
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">L열 · 현실적인 구현 범위 설정</h4>
+                            <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">현실적인 구현 범위(힌트)</h4>
                             <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.implementationScope}</p>
                           </div>
                           <div className="p-5 bg-white rounded-xl border border-slate-100">
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">M열 · 구현 전 검토 사항</h4>
+                            <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">구현 전 검토 사항</h4>
                             <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.preReviewItems}</p>
                           </div>
                         </div>
                         <div className="p-5 bg-amber-50 rounded-xl border border-amber-100">
-                          <h4 className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-2">N열 · 성공의 정의-평가 기준</h4>
+                          <h4 className="text-sm font-black text-amber-800 tracking-tight mb-2">성공의 정의(평가 기준)</h4>
                           <p className="text-slate-800 text-sm font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.successDefinition}</p>
                         </div>
                       </div>
@@ -425,51 +626,35 @@ export default function App() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      {saveStatus === 'saved' && <span className="text-xs font-bold text-emerald-600">작성내용 저장됨</span>}
+                      {saveStatus === 'saving' && <span className="text-xs font-bold text-slate-500">저장 중…</span>}
+                      {saveStatus === 'saved' && <span className="text-xs font-bold text-emerald-600">저장 완료</span>}
                       {saveStatus === 'error' && <span className="text-xs font-bold text-red-600">저장 실패</span>}
-                      <button
-                        onClick={async () => {
-                          setSaveStatus('saving');
-                          const result = await saveWrittenContent({
-                            taskId: selectedTask.id,
-                            department: selectedTask.department,
-                            expectedArea: selectedTask.expectedArea,
-                            concretize: { q1: concretize.q1, q2: concretize.q2, q3: concretize.q3, q4: concretize.q4, q5: concretize.q5, q6: concretize.q6 },
-                          });
-                          setSaveStatus(result.success ? 'saved' : 'error');
-                        }}
-                        disabled={saveStatus === 'saving'}
-                        className="px-5 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 disabled:opacity-50 transition-all"
-                      >
-                        {saveStatus === 'saving' ? '저장 중…' : '작성내용 시트에 저장'}
-                      </button>
                     </div>
                   </div>
 
-                  <p className="text-slate-500 text-sm font-medium mb-10 leading-relaxed">과제리뷰 I~N열 내용을 참고하여 아래 항목을 작성해 주세요. 작성 내용은 구글 시트 「작성내용」에 저장됩니다.</p>
+                  <p className="text-slate-600 text-sm font-medium mb-10 leading-relaxed">아래 내용은 후속 과정에서 구현자(실무자)에게 인계할 수 있도록, 가능한 한 구체적으로 작성해 주세요.</p>
 
                   <div className="space-y-10">
                     {[
-                      { num: 1, title: '대상 과업의 현재 수행방식(워크플로우) 정리하기', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideLabel: 'I열 참고', guideText: selectedTask.workflow },
-                      { num: 2, title: '현재의 수행방식으로 인해 발생된 현상과 Root Cause 도출/ 정의하기', value: concretize.q2, onChange: (v: string) => setConcretize(prev => ({ ...prev, q2: v })), guideLabel: 'J열 참고', guideText: selectedTask.leaderKeyPoints },
-                      { num: 3, title: '과업의 Root Cause를 해소하기 위해 무엇을 바꿔야 하는가?', value: concretize.q3, onChange: (v: string) => setConcretize(prev => ({ ...prev, q3: v })), guideLabel: 'K열 참고', guideText: selectedTask.explorationQuestions },
-                      { num: 4, title: 'Root Cause가 AI를 기반으로 해소된 모습 그려보기', value: concretize.q4, onChange: (v: string) => setConcretize(prev => ({ ...prev, q4: v })), guideLabel: 'N열 참고', guideText: selectedTask.successDefinition },
-                      { num: 5, title: '후속 과정에서 구현될 솔루션은 핵심적으로 어떤 요소를 포함하고 있어야 하는가?', value: concretize.q5, onChange: (v: string) => setConcretize(prev => ({ ...prev, q5: v })), guideLabel: 'L열 참고', guideText: selectedTask.implementationScope },
-                      { num: 6, title: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가?', value: concretize.q6, onChange: (v: string) => setConcretize(prev => ({ ...prev, q6: v })), guideLabel: 'M열 참고', guideText: selectedTask.preReviewItems },
-                    ].map(({ num, title, value, onChange, guideLabel, guideText }) => (
+                      { num: 1, key: 'q1', title: '개선하고자 하는 대상 과업을 현재는 어떻게 수행하고 있는지 정리해 주세요.', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideText: concretizeGuides.q1 || '' },
+                      { num: 2, key: 'q2', title: '현재의 수행방식으로 인해 발생된 병목 및 비효율은 무엇인가요?', value: concretize.q2, onChange: (v: string) => setConcretize(prev => ({ ...prev, q2: v })), guideText: concretizeGuides.q2 || '' },
+                      { num: 3, key: 'q4', title: '병목 및 비효율이 AI 기반으로 어떻게 해소되길 기대하십니까?', value: concretize.q4, onChange: (v: string) => setConcretize(prev => ({ ...prev, q4: v })), guideText: concretizeGuides.q4 || '' },
+                      { num: 4, key: 'q5', title: '이 문제가 성공적으로 해소되었다고 판단하기 위해 무엇이 달성되거나, 구현된 결과물에 포함되어 있어야 합니까?', value: concretize.q5, onChange: (v: string) => setConcretize(prev => ({ ...prev, q5: v })), guideText: concretizeGuides.q5 || '' },
+                      { num: 5, key: 'q6', title: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가요?', value: concretize.q6, onChange: (v: string) => setConcretize(prev => ({ ...prev, q6: v })), guideText: concretizeGuides.q6 || '' },
+                    ].map(({ num, title, value, onChange, guideText }) => (
                       <section key={num} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-6">
                         <div className="flex items-center gap-3 mb-3">
                           <div className="w-8 h-8 rounded-lg bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">{num}</div>
                           <h3 className="text-lg font-black text-slate-800">{title}</h3>
                         </div>
-                        <div className="mb-4 p-4 bg-white rounded-xl border border-slate-100">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">작성 가이드 · {guideLabel}</p>
-                          <p className="text-slate-600 text-sm font-medium leading-relaxed whitespace-pre-wrap">{guideText || '—'}</p>
+                          <div className="mb-4 p-4 bg-white rounded-xl border border-slate-100">
+                          <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">작성 가이드</p>
+                          <div className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{guideText || (isGuideLoading ? '가이드를 생성 중입니다…' : '가이드를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')}</div>
                         </div>
                         <textarea
                           value={value}
                           onChange={(e) => onChange(e.target.value)}
-                          placeholder="위 가이드를 참고하여 작성해 주세요."
+                          placeholder="구현자가 바로 이해할 수 있도록 구체적으로 작성해 주세요."
                           className="w-full min-h-[100px] p-4 bg-white rounded-xl border border-slate-200 focus:border-[#ED1C24] focus:ring-2 focus:ring-red-100 outline-none text-sm font-medium leading-relaxed transition-all"
                         />
                       </section>
@@ -479,7 +664,7 @@ export default function App() {
                   <div className="mt-14 flex justify-between items-center">
                     <button onClick={() => setCurrentStep('review')} className="px-6 py-3 text-slate-500 font-bold rounded-xl hover:bg-slate-100 transition-all">이전</button>
                     <button
-                      onClick={() => setCurrentStep('export')}
+                      onClick={handleGoToExport}
                       className="px-10 py-5 bg-[#ED1C24] text-white rounded-2xl font-black text-lg flex items-center gap-3 hover:bg-[#D11920] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/20"
                     >
                       최종 보고서 확인하기 <ChevronRight size={24} />
@@ -492,7 +677,7 @@ export default function App() {
                 <div className="bg-slate-900 text-white rounded-[2.5rem] p-8 sticky top-32">
                   <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><FileText size={20} /> 작성 안내</h3>
                   <p className="text-slate-300 text-sm leading-relaxed font-medium">
-                    각 질문 아래에 과제리뷰 시트의 I~N열에서 발췌한 참고 내용이 가이드로 제시됩니다. 이를 바탕으로 본부·과제에 맞게 구체적으로 작성한 뒤, 「작성내용 시트에 저장」 버튼을 누르면 구글 시트의 「작성내용」 시트에 저장됩니다.
+                    작성 가이드는 임원 리뷰 내용을 종합해 자동으로 생성됩니다. 아래 질문에 대해 가능한 한 구체적으로 작성하면, 이후 구현자가 바로 실행 가능한 형태로 인계할 수 있습니다.
                   </p>
                 </div>
               </div>
@@ -520,7 +705,7 @@ export default function App() {
                 </button>
               </div>
 
-              <div id="report-content" className="bg-white shadow-2xl mx-auto max-w-[900px] p-16 border border-gray-100 min-h-[1200px] rounded-[3rem]">
+              <div id="report-content" className="pdf-safe bg-white shadow-2xl mx-auto max-w-[900px] p-16 border border-gray-100 min-h-[1200px] rounded-[3rem]">
                 {/* PDF Header */}
                 <div className="flex justify-between items-end border-b-4 border-[#ED1C24] pb-10 mb-12">
                   <div className="space-y-4">
@@ -569,16 +754,16 @@ export default function App() {
                     </div>
                     <div className="space-y-6">
                       <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100">
-                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">전체 워크플로우 (I열)</h4>
+                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">전체 워크플로우</h4>
                         <p className="text-base font-bold text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedTask.workflow}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-6">
                         <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">팀장 관점 포인트 (J열)</h4>
+                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">팀장 관점 포인트</h4>
                           <p className="text-sm font-bold text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedTask.leaderKeyPoints}</p>
                         </div>
                         <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">성공 정의 (N열)</h4>
+                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">성공 정의</h4>
                           <p className="text-sm font-bold text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedTask.successDefinition}</p>
                         </div>
                       </div>
@@ -592,15 +777,14 @@ export default function App() {
                     </div>
                     <div className="space-y-6">
                       {[
-                        { label: '대상 과업의 현재 수행방식(워크플로우) 정리하기', value: concretize.q1 },
-                        { label: '현재의 수행방식으로 인해 발생된 현상과 Root Cause 도출/ 정의하기', value: concretize.q2 },
-                        { label: '과업의 Root Cause를 해소하기 위해 무엇을 바꿔야 하는가?', value: concretize.q3 },
-                        { label: 'Root Cause가 AI를 기반으로 해소된 모습 그려보기', value: concretize.q4 },
-                        { label: '후속 과정에서 구현될 솔루션은 핵심적으로 어떤 요소를 포함하고 있어야 하는가?', value: concretize.q5 },
-                        { label: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가?', value: concretize.q6 },
+                        { label: '개선하고자 하는 대상 과업을 현재는 어떻게 수행하고 있는지 정리해 주세요.', value: concretize.q1 },
+                        { label: '현재의 수행방식으로 인해 발생된 병목 및 비효율은 무엇인가요?', value: concretize.q2 },
+                        { label: '병목 및 비효율이 AI 기반으로 어떻게 해소되길 기대하십니까?', value: concretize.q4 },
+                        { label: '이 문제가 성공적으로 해소되었다고 판단하기 위해 무엇이 달성되거나, 구현된 결과물에 포함되어 있어야 합니까?', value: concretize.q5 },
+                        { label: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가요?', value: concretize.q6 },
                       ].map(({ label, value }, i) => (
                         <div key={i} className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{i + 1}. {label}</h4>
+                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">{i + 1}. {label}</h4>
                           <p className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{value || '—'}</p>
                         </div>
                       ))}
