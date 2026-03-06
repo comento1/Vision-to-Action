@@ -109,15 +109,20 @@ function handleGetWritten_(ss, e) {
       obj[headers[c] || ("col" + c)] = r[c];
     }
 
+    // 헤더 표기(공백/언더스코어) 차이 호환
+    var userOrg = String(obj["소속본부"] || obj["소속 본부"] || obj["소속"] || "");
+    var pdfLink = String(obj["PDF_결과물_링크"] || obj["PDF 결과물 링크"] || obj["PDF링크"] || "");
+
     items.push({
       timestamp: String(obj["일시"] || ""),
       userKey: String(obj["사용자키"] || ""),
-      userOrg: String(obj["소속본부"] || ""),
+      userOrg: userOrg,
       userName: String(obj["이름"] || ""),
       userTitle: String(obj["직급"] || ""),
       taskId: String(obj["과제ID"] || ""),
       taskDepartment: String(obj["본부"] || ""),
       expectedArea: String(obj["과제명"] || ""),
+      pdfResultLink: pdfLink,
       concretize: {
         q1: String(obj["Q1_대상과업_현재수행방식_워크플로우"] || ""),
         q2: String(obj["Q2_현상과_RootCause_도출정의"] || ""),
@@ -159,7 +164,8 @@ function doPost(e) {
 
     var headerRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     var headers = headerRow.map(function(h) { return String(h || "").trim(); });
-    var required = ["일시", "사용자키", "소속본부", "이름", "직급", "과제ID", "본부", "과제명", "PDF_결과물_링크",
+    // 기존 시트에서 '소속 본부'처럼 공백 포함 표기를 쓰는 경우가 있어 호환 컬럼을 함께 지원
+    var required = ["일시", "사용자키", "소속본부", "소속 본부", "이름", "직급", "과제ID", "본부", "과제명", "PDF_결과물_링크", "PDF 결과물 링크",
       "Q1_대상과업_현재수행방식_워크플로우",
       "Q2_현상과_RootCause_도출정의",
       "Q3_RootCause해소_무엇을바꿔야하는가",
@@ -179,6 +185,13 @@ function doPost(e) {
 
     var colIndex = {};
     for (var ci = 0; ci < headers.length; ci++) colIndex[headers[ci]] = ci + 1; // 1-based
+    var pickCol = function() {
+      for (var i = 0; i < arguments.length; i++) {
+        var name = String(arguments[i] || "");
+        if (colIndex[name]) return colIndex[name];
+      }
+      return 0;
+    };
 
     var user = payload.user || {};
     var userOrg = String(user.org || "");
@@ -208,13 +221,15 @@ function doPost(e) {
 
     sheet.getRange(targetRow, colIndex["일시"]).setValue(new Date());
     if (colIndex["사용자키"]) sheet.getRange(targetRow, colIndex["사용자키"]).setValue(userKey);
-    if (colIndex["소속본부"]) sheet.getRange(targetRow, colIndex["소속본부"]).setValue(userOrg);
+    var cOrg = pickCol("소속본부", "소속 본부");
+    if (cOrg) sheet.getRange(targetRow, cOrg).setValue(userOrg);
     if (colIndex["이름"]) sheet.getRange(targetRow, colIndex["이름"]).setValue(userName);
     if (colIndex["직급"]) sheet.getRange(targetRow, colIndex["직급"]).setValue(userTitle);
     if (colIndex["과제ID"]) sheet.getRange(targetRow, colIndex["과제ID"]).setValue(taskId);
     if (colIndex["본부"]) sheet.getRange(targetRow, colIndex["본부"]).setValue(taskDept);
     if (colIndex["과제명"]) sheet.getRange(targetRow, colIndex["과제명"]).setValue(expectedArea);
-    if (colIndex["PDF_결과물_링크"]) sheet.getRange(targetRow, colIndex["PDF_결과물_링크"]).setValue(String(payload.pdfResultLink || ""));
+    var cPdf = pickCol("PDF_결과물_링크", "PDF 결과물 링크");
+    if (cPdf) sheet.getRange(targetRow, cPdf).setValue(String(payload.pdfResultLink || ""));
 
     if (colIndex["Q1_대상과업_현재수행방식_워크플로우"]) sheet.getRange(targetRow, colIndex["Q1_대상과업_현재수행방식_워크플로우"]).setValue(c.q1 || "");
     if (colIndex["Q2_현상과_RootCause_도출정의"]) sheet.getRange(targetRow, colIndex["Q2_현상과_RootCause_도출정의"]).setValue(c.q2 || "");

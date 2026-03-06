@@ -68,6 +68,19 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isGuideLoading, setIsGuideLoading] = useState(false);
 
+  const formatGuideText = (text: string) => {
+    const t = String(text || "").trim();
+    if (!t) return "";
+    // 긴 문단을 보기 좋게: 번호/불릿 시작 전 줄바꿈을 보강
+    return t
+      .replace(/\r\n/g, "\n")
+      .replace(/\n(?=\d+\))/g, "\n\n")
+      .replace(/\n(?=\[\d+\])/g, "\n\n")
+      .replace(/\n(?=\d+\.)/g, "\n\n")
+      .replace(/\n(?=-\s)/g, "\n")
+      .replace(/\n{3,}/g, "\n\n");
+  };
+
   useEffect(() => {
     loadTasks();
   }, []);
@@ -134,9 +147,8 @@ export default function App() {
     setWrittenLoadError('');
     const result = await fetchWrittenContents(p);
     if (result.error) setWrittenLoadError(result.error);
-    const myKey = toUserKey(p);
-    const mineOnly = (result.items || []).filter((e) => String(e.userKey || '').trim() === myKey);
-    setWrittenEntries(mineOnly);
+    // 서버/Apps Script에서 userKey로 필터링된 결과만 내려오는 것이 정상이므로, 클라이언트에서 2중 필터링하지 않음
+    setWrittenEntries(result.items || []);
   };
 
   /** WrittenEntry만으로 최소 ExecutiveTask 생성 (과제 목록에 없을 때 수정 단계 진입용) */
@@ -234,6 +246,66 @@ export default function App() {
     const element = document.getElementById("report-content");
     if (!element) return;
 
+    const makeColorNormalizer = () => {
+      if (typeof document === "undefined") return { normalize: (v: string) => v, cleanup: () => {} };
+      const tmp = document.createElement("div");
+      tmp.style.position = "fixed";
+      tmp.style.left = "-99999px";
+      tmp.style.top = "-99999px";
+      tmp.style.width = "1px";
+      tmp.style.height = "1px";
+      document.body.appendChild(tmp);
+      const toRgb = (prop: "color" | "backgroundColor" | "borderColor", val: string) => {
+        try {
+          // 브라우저가 지원하는 색상(oklch 등)을 rgb로 정규화
+          (tmp.style as any)[prop] = "";
+          (tmp.style as any)[prop] = val;
+          const computed = getComputedStyle(tmp) as any;
+          const out = String(computed[prop] || "");
+          return out || val;
+        } catch {
+          return val;
+        }
+      };
+      return {
+        normalize: (val: string, kind: "color" | "backgroundColor" | "borderColor") => toRgb(kind, val),
+        cleanup: () => {
+          try { tmp.remove(); } catch {}
+        },
+      };
+    };
+
+    const inlineComputedColors = (root: HTMLElement) => {
+      const touched: Array<{ el: HTMLElement; prevStyle: string | null }> = [];
+      const apply = (el: HTMLElement) => {
+        touched.push({ el, prevStyle: el.getAttribute("style") });
+        const cs = window.getComputedStyle(el);
+        const normalizer = makeColorNormalizer();
+        const color = normalizer.normalize(cs.color, "color");
+        const bg = normalizer.normalize(cs.backgroundColor, "backgroundColor");
+        const borderTop = normalizer.normalize(cs.borderTopColor, "borderColor");
+        const borderRight = normalizer.normalize(cs.borderRightColor, "borderColor");
+        const borderBottom = normalizer.normalize(cs.borderBottomColor, "borderColor");
+        const borderLeft = normalizer.normalize(cs.borderLeftColor, "borderColor");
+        normalizer.cleanup();
+        el.style.setProperty("color", color);
+        el.style.setProperty("background-color", bg);
+        el.style.setProperty("border-top-color", borderTop);
+        el.style.setProperty("border-right-color", borderRight);
+        el.style.setProperty("border-bottom-color", borderBottom);
+        el.style.setProperty("border-left-color", borderLeft);
+      };
+      apply(root);
+      root.querySelectorAll<HTMLElement>("*").forEach(apply);
+      return () => {
+        // 원본 DOM 스타일 복구
+        for (const t of touched) {
+          if (t.prevStyle === null) t.el.removeAttribute("style");
+          else t.el.setAttribute("style", t.prevStyle);
+        }
+      };
+    };
+
     const pdfSafeCss = `
       .pdf-safe, .pdf-safe * { box-shadow: none !important; text-shadow: none !important; }
       .pdf-safe { background-color: #ffffff !important; color: #0f172a !important; }
@@ -274,27 +346,32 @@ export default function App() {
     };
 
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        onclone: (_doc, clonedEl) => {
-          const style = _doc.createElement("style");
-          style.textContent = pdfSafeCss;
-          _doc.head.appendChild(style);
-          clonedEl.style.setProperty("color", "#0f172a");
-          clonedEl.style.setProperty("background-color", "#ffffff");
-          forceHexInClone(clonedEl as HTMLElement);
-        },
-      });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`VisionToAction_Report_${selectedTask?.id}.pdf`);
+      const restore = inlineComputedColors(element as HTMLElement);
+      try {
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          onclone: (_doc, clonedEl) => {
+            const style = _doc.createElement("style");
+            style.textContent = pdfSafeCss;
+            _doc.head.appendChild(style);
+            clonedEl.style.setProperty("color", "#0f172a");
+            clonedEl.style.setProperty("background-color", "#ffffff");
+            forceHexInClone(clonedEl as HTMLElement);
+          },
+        });
+        const imgData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF("p", "mm", "a4");
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+        pdf.save(`VisionToAction_Report_${selectedTask?.id}.pdf`);
+      } finally {
+        restore();
+      }
     } catch (err) {
       console.error("PDF export failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -682,27 +759,27 @@ export default function App() {
                 <div className="bg-slate-900 text-white rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden">
                   <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-3xl" />
                   <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-[#ED1C24]">
-                    <Sparkles size={24} /> 팀장 필수 확인 사항
+                    <Sparkles size={24} /> 필수 확인 사항
                   </h3>
                   <p className="text-slate-300 text-sm leading-relaxed mb-6 font-medium">
-                    구현 단계로 넘기기 전에, 아래 관점에서 과제가 명확한지 점검하세요.
+                    구현 단계로 넘기기 전에, 아래 관점에서 과제를 검토해 주세요.
                   </p>
                   <div className="space-y-5">
                     <div className="flex items-start gap-4 group">
                       <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">1</div>
-                      <p className="text-xs text-slate-300 font-bold leading-relaxed">비효율·개선 포인트를 <span className="text-white">구체적 수치·사례</span>로 적었는가? (예: 소요 시간, 발생 빈도, 오류율)</p>
+                      <p className="text-xs text-slate-300 font-bold leading-relaxed">임원진이 작성한 AI 적용 희망 영역을 확인해 주세요.</p>
                     </div>
                     <div className="flex items-start gap-4 group">
                       <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">2</div>
-                      <p className="text-xs text-slate-300 font-bold leading-relaxed">성공의 정의가 <span className="text-white">측정 가능한 기준</span>으로 되어 있는가? (단순 “시간 단축”이 아닌, 얼마나·어떤 결과물까지)</p>
+                      <p className="text-xs text-slate-300 font-bold leading-relaxed">다음으로 AI 적용 희망 영역을 구체화하기 위한 리뷰내용을 확인해 주세요.</p>
                     </div>
                     <div className="flex items-start gap-4 group">
                       <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">3</div>
-                      <p className="text-xs text-slate-300 font-bold leading-relaxed">구현 범위가 <span className="text-white">한 번에 달성 가능한 수준</span>으로 한정되어 있는가? (과도한 범위는 실패 요인)</p>
+                      <p className="text-xs text-slate-300 font-bold leading-relaxed">직책자 관점에서 근본적인 문제를 해결하기 위해 검토/개선되어야 할 영역을 명확히 규명하고, 현실적인 구현 범위를 설정하여 실무자가 구현할 수 있게 인계하는 것이 중요합니다.</p>
                     </div>
                     <div className="flex items-start gap-4 group">
                       <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">4</div>
-                      <p className="text-xs text-slate-300 font-bold leading-relaxed">결과물에 <span className="text-white">반드시 포함되어야 할 산출물·기능</span>이 명시되어 있는가? (구현자가 빠뜨리지 않도록)</p>
+                      <p className="text-xs text-slate-300 font-bold leading-relaxed">이러한 점을 충분히 검토한 후에, \"전략 구체화 시작하기\"를 클릭하여 다음 단계를 진행해 주세요.</p>
                     </div>
                   </div>
                 </div>
@@ -754,7 +831,7 @@ export default function App() {
                         </div>
                           <div className="mb-4 p-4 bg-white rounded-xl border border-slate-100">
                           <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">작성 가이드</p>
-                          <div className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{guideText || (isGuideLoading ? '가이드를 생성 중입니다…' : '가이드를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')}</div>
+                          <div className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{formatGuideText(guideText) || (isGuideLoading ? '가이드를 생성 중입니다…' : '가이드를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')}</div>
                         </div>
                         <textarea
                           value={value}
@@ -780,25 +857,30 @@ export default function App() {
 
               <div className="space-y-8">
                 <div className="bg-slate-900 text-white rounded-[2.5rem] p-8 sticky top-32">
-                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><FileText size={20} /> 작성 시 팀장이 지킬 것</h3>
-                  <ul className="space-y-3 text-slate-300 text-sm font-medium leading-relaxed">
-                    <li className="flex items-start gap-2">
-                      <span className="text-[#ED1C24] font-black shrink-0">·</span>
-                      <span>각 질문은 <strong className="text-white">실행 가능한 문장</strong>으로 작성 (예: “~를 자동화한다”보다 “~ 조건일 때 ~ 형식으로 리포트를 생성한다”)</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-[#ED1C24] font-black shrink-0">·</span>
-                      <span>수치·기준이 있으면 <strong className="text-white">반드시 명시</strong> (소요 시간, 건수, 품질 기준 등)</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-[#ED1C24] font-black shrink-0">·</span>
-                      <span>결과물에 “반드시 포함되어야 할 것”은 <strong className="text-white">체크리스트 형태</strong>로 구체화</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-[#ED1C24] font-black shrink-0">·</span>
-                      <span>구현 시 예상 어려움은 <strong className="text-white">데이터·권한·시스템</strong> 등 유형별로 구분해 적기</span>
-                    </li>
-                  </ul>
+                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><FileText size={20} /> 작성시 직책자가 고려해야 할 것</h3>
+                  <div className="space-y-6 text-slate-300 text-sm font-medium leading-relaxed">
+                    <div>
+                      <div className="text-white font-black mb-2">1) 문제와 비효율을 “검증 가능”하게 만들기</div>
+                      <ul className="space-y-2">
+                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>현상은 <strong className="text-white">수치/증거</strong>로 작성 (예: 월 120건, 평균 25분/건, 오류 3%)</span></li>
+                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>개선 포인트는 “왜 비효율인지”를 <strong className="text-white">원인-결과</strong>로 연결</span></li>
+                      </ul>
+                    </div>
+                    <div>
+                      <div className="text-white font-black mb-2">2) AI 적용 후 기대 효과를 “업무 산출물” 관점으로 구체화</div>
+                      <ul className="space-y-2">
+                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>결과물의 <strong className="text-white">형태(리포트/대시보드/추천안)</strong>와 품질 기준(정확도/누락율)을 명시</span></li>
+                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>사람이 최종 승인해야 하는 지점(검토/결재)을 구분</span></li>
+                      </ul>
+                    </div>
+                    <div>
+                      <div className="text-white font-black mb-2">3) 구현 범위를 현실화하고 인계 가능 형태로 만들기</div>
+                      <ul className="space-y-2">
+                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>“반드시 포함” 기능과 “추후” 기능을 분리 (MVP 범위 고정)</span></li>
+                        <li className="flex items-start gap-2"><span className="text-[#ED1C24] font-black shrink-0">-</span><span>필요 데이터/권한/시스템 연동을 사전에 체크해 실무자가 바로 착수할 수 있게 작성</span></li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
             </motion.div>
