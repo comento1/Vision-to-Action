@@ -599,7 +599,7 @@ export default function App() {
                   <h2 className="text-5xl font-black tracking-tighter text-slate-900 leading-none">본부별 <span className="text-[#ED1C24]">AI 활용 영역</span> 대시보드</h2>
                   <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed whitespace-pre-line">
                     본부별로 임원진이 도출한 AI 활용 희망 영역을 한눈에 보고, 팀에서 구체화할 과제를 선택합니다.
-                    팀장/매니저는 본인 본부 내에서 구현할 과제를 선택한 뒤 다음 단계(임원진 비전 리뷰)로 진행하세요.
+                    그후 우리 본부 내에서 구현할 과제를 선택한 뒤 다음 단계(임원진 비전 리뷰)로 진행하세요.
                   </p>
                 </div>
                 {/* 부제 하단: 구글 시트 A열 기준 전체 본부 선택 버튼 */}
@@ -662,12 +662,13 @@ export default function App() {
                         <span className="text-[10px] font-mono font-bold text-slate-300">{task.id}</span>
                       </div>
                       
-                      <h3 className="text-2xl font-black leading-tight mb-4 text-slate-900 group-hover:text-[#ED1C24] transition-colors relative z-10">
-                        {task.expectedArea}
+                      {/* 상단: 과제 소개(간단 식별), 하단: AI 적용 기대 영역(상대적으로 길 수 있음) */}
+                      <h3 className="text-2xl font-black leading-tight mb-4 text-slate-900 group-hover:text-[#ED1C24] transition-colors relative z-10 whitespace-pre-wrap">
+                        {task.oneLineSummary}
                       </h3>
                       
-                      <p className="text-slate-500 text-sm leading-relaxed mb-8 line-clamp-3 font-medium relative z-10">
-                        {task.oneLineSummary}
+                      <p className="text-slate-500 text-sm leading-relaxed mb-8 line-clamp-3 font-medium relative z-10 whitespace-pre-wrap">
+                        {task.expectedArea}
                       </p>
                       
                       <div className="flex items-center justify-between pt-6 border-t border-gray-50 relative z-10">
@@ -881,14 +882,14 @@ export default function App() {
 
               <div className="space-y-8">
                 <div className="bg-slate-900 text-white rounded-[2.5rem] p-8 sticky top-32">
-                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><Sparkles size={20} /> AI 맥락 대화</h3>
+                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><Sparkles size={20} /> 각 질문에 대해 AI의 도움을 받을 수 있습니다</h3>
                   <p className="text-slate-300 text-xs font-medium mb-4">어떤 질문이든 입력해 보세요. 맥락을 지정하면 토큰을 아끼며 더 정확한 피드백을 받을 수 있습니다.</p>
                   <div className="space-y-4">
-                    <label className="block text-slate-400 text-xs font-bold">질문 선택 (맥락용)</label>
+                    <label className="block text-slate-400 text-xs font-bold">보다 특화하여 논의를 원하는 경우 질문을 선택해 주세요.</label>
                     <select
                       value={concretizeChatQuestionIndex === null ? '' : concretizeChatQuestionIndex}
                       onChange={(e) => setConcretizeChatQuestionIndex(e.target.value === '' ? null : Number(e.target.value))}
-                      className="w-full p-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#ED1C24]"
+                      className="w-full p-3 rounded-xl bg-white border border-white/20 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#ED1C24]"
                     >
                       <option value="">선택 안 함</option>
                       {[
@@ -898,7 +899,7 @@ export default function App() {
                         '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 고려되어야 할 것은 무엇입니까?',
                         '구현 과정에서 구현자가 반드시 고려해야 할 사항은 무엇입니까?',
                       ].map((q, i) => (
-                        <option key={i} value={i}>질문 {i + 1}</option>
+                        <option key={i} value={i}>{q}</option>
                       ))}
                     </select>
                     <textarea

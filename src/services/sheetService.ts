@@ -105,27 +105,32 @@ export async function saveWrittenContent(
 ): Promise<{ success: boolean; error?: string }> {
   const body = JSON.stringify(payload);
   const opts = { method: "POST" as const, headers: { "Content-Type": "application/json" }, body };
+  // Apps Script 직접 호출 시 CORS preflight(OPTIONS)를 피하기 위해 text/plain 사용
+  const optsDirect = { method: "POST" as const, headers: { "Content-Type": "text/plain;charset=utf-8" }, body };
 
-  // 1) 서버 프록시 시도
+  // 1) 서버 프록시 시도 (가능하면 우선 사용)
+  let proxyError: string | undefined;
   try {
     const response = await fetch("/api/save", opts);
     const data = await response.json().catch(() => ({}));
     if (response.ok) return { success: true };
-    return { success: false, error: (data as { error?: string }).error || "저장 실패" };
-  } catch (_) {
-    // 2) 프록시 없으면 구글 시트 URL로 직접 POST (Vercel 등)
-    if (!SHEET_API_URL) {
-      return { success: false, error: "시트 연동 URL이 설정되지 않았습니다." };
-    }
-    try {
-      const response = await fetch(SHEET_API_URL, opts);
-      const data = await response.json().catch(() => ({}));
-      if (response.ok && !(data as { error?: string }).error) return { success: true };
-      return { success: false, error: (data as { error?: string }).error || "저장 실패" };
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      return { success: false, error: msg };
-    }
+    proxyError = (data as { error?: string }).error || "저장 실패";
+  } catch (e: unknown) {
+    proxyError = e instanceof Error ? e.message : String(e);
+  }
+
+  // 2) 프록시가 없거나(404 등) 실패하면 구글 시트 URL로 직접 POST
+  if (!SHEET_API_URL) {
+    return { success: false, error: proxyError || "시트 연동 URL이 설정되지 않았습니다." };
+  }
+  try {
+    const response = await fetch(SHEET_API_URL, optsDirect);
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && !(data as { error?: string }).error) return { success: true };
+    return { success: false, error: (data as { error?: string }).error || proxyError || "저장 실패" };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { success: false, error: proxyError ? `${proxyError} / ${msg}` : msg };
   }
 }
 

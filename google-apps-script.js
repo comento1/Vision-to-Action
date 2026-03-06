@@ -148,18 +148,38 @@ function doPost(e) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName("작성내용");
 
+    var defaultHeaders = [
+      "일시", "사용자키", "소속본부", "이름", "직급", "과제ID", "본부", "과제명", "PDF_결과물_링크",
+      "Q1_대상과업_현재수행방식_워크플로우",
+      "Q2_현상과_RootCause_도출정의",
+      "Q3_RootCause해소_무엇을바꿔야하는가",
+      "Q4_AI기반_해소된모습",
+      "Q5_솔루션_핵심포함요소",
+      "Q6_구현시_고려예상어려움"
+    ];
+
     if (!sheet) {
       sheet = ss.insertSheet("작성내용");
-      sheet.appendRow([
-        "일시", "사용자키", "소속본부", "이름", "직급", "과제ID", "본부", "과제명", "PDF_결과물_링크",
-        "Q1_대상과업_현재수행방식_워크플로우",
-        "Q2_현상과_RootCause_도출정의",
-        "Q3_RootCause해소_무엇을바꿔야하는가",
-        "Q4_AI기반_해소된모습",
-        "Q5_솔루션_핵심포함요소",
-        "Q6_구현시_고려예상어려움"
-      ]);
+      sheet.getRange(1, 1, 1, defaultHeaders.length).setValues([defaultHeaders]);
       sheet.getRange("1:1").setFontWeight("bold");
+    }
+
+    // "작성내용" 시트가 이미 존재하지만 완전히 비어있는 경우(getLastColumn()=0) 헤더 초기화
+    if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) {
+      sheet.getRange(1, 1, 1, defaultHeaders.length).setValues([defaultHeaders]);
+      sheet.getRange("1:1").setFontWeight("bold");
+    } else {
+      // 1행이 있으나 전부 빈 값인 경우도 방어적으로 초기화
+      var lastColForCheck = Math.max(1, sheet.getLastColumn());
+      var headerCheck = sheet.getRange(1, 1, 1, lastColForCheck).getValues()[0] || [];
+      var allEmpty = true;
+      for (var hi = 0; hi < headerCheck.length; hi++) {
+        if (String(headerCheck[hi] || "").trim() !== "") { allEmpty = false; break; }
+      }
+      if (allEmpty) {
+        sheet.getRange(1, 1, 1, defaultHeaders.length).setValues([defaultHeaders]);
+        sheet.getRange("1:1").setFontWeight("bold");
+      }
     }
 
     var headerRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
