@@ -11,7 +11,7 @@ async function startServer() {
 
   // API Route to proxy Google Sheets (과제리뷰 조회)
   app.get("/api/tasks", async (req, res) => {
-    const SHEET_API_URL = process.env.VITE_SHEET_API_URL || "https://script.google.com/macros/s/AKfycbyPCZRENZ__YkgqrQ_ixO8GuXFaKrcfta-3Oprze_YcDMwpjKlxpRPoKr_vBJ2qJ2OP/exec";
+    const SHEET_API_URL = process.env.VITE_SHEET_API_URL || "https://script.google.com/macros/s/AKfycbx4Pl0kK7kYFO7RJv4o2KC980r7tJnaItBIXIG9tARMLow7ocHHGlYLNt8bB4ZpsQD0/exec";
     
     try {
       console.log("Server proxying request to Google Sheets...");
@@ -32,7 +32,7 @@ async function startServer() {
 
   // POST: 작성 내용을 구글 시트 "작성내용" 시트에 저장
   app.post("/api/save", async (req, res) => {
-    const SHEET_API_URL = process.env.VITE_SHEET_API_URL || "https://script.google.com/macros/s/AKfycbyPCZRENZ__YkgqrQ_ixO8GuXFaKrcfta-3Oprze_YcDMwpjKlxpRPoKr_vBJ2qJ2OP/exec";
+    const SHEET_API_URL = process.env.VITE_SHEET_API_URL || "https://script.google.com/macros/s/AKfycbx4Pl0kK7kYFO7RJv4o2KC980r7tJnaItBIXIG9tARMLow7ocHHGlYLNt8bB4ZpsQD0/exec";
     try {
       const response = await fetch(SHEET_API_URL, {
         method: "POST",
@@ -54,7 +54,7 @@ async function startServer() {
   app.get("/api/written", async (req, res) => {
     const SHEET_API_URL =
       process.env.VITE_SHEET_API_URL ||
-      "https://script.google.com/macros/s/AKfycbyPCZRENZ__YkgqrQ_ixO8GuXFaKrcfta-3Oprze_YcDMwpjKlxpRPoKr_vBJ2qJ2OP/exec";
+      "https://script.google.com/macros/s/AKfycbx4Pl0kK7kYFO7RJv4o2KC980r7tJnaItBIXIG9tARMLow7ocHHGlYLNt8bB4ZpsQD0/exec";
     try {
       const url = new URL(SHEET_API_URL);
       url.searchParams.set("type", "written");

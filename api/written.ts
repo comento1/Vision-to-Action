@@ -1,6 +1,6 @@
 const SHEET_API_URL =
   process.env.VITE_SHEET_API_URL ||
-  "https://script.google.com/macros/s/AKfycbyPCZRENZ__YkgqrQ_ixO8GuXFaKrcfta-3Oprze_YcDMwpjKlxpRPoKr_vBJ2qJ2OP/exec";
+  "https://script.google.com/macros/s/AKfycbx4Pl0kK7kYFO7RJv4o2KC980r7tJnaItBIXIG9tARMLow7ocHHGlYLNt8bB4ZpsQD0/exec";
 
 export async function GET(request: Request) {
   try {
