@@ -16,6 +16,8 @@ export interface SaveWrittenContentPayload {
   department: string;
   expectedArea: string;
   user: UserProfile;
+  /** 보고서 확인 URL (최종 PDF/결과물 화면 링크) */
+  pdfResultLink?: string;
   concretize: {
     q1: string;
     q2: string;

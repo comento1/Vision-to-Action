@@ -146,7 +146,7 @@ function doPost(e) {
     if (!sheet) {
       sheet = ss.insertSheet("작성내용");
       sheet.appendRow([
-        "일시", "사용자키", "소속본부", "이름", "직급", "과제ID", "본부", "과제명",
+        "일시", "사용자키", "소속본부", "이름", "직급", "과제ID", "본부", "과제명", "PDF_결과물_링크",
         "Q1_대상과업_현재수행방식_워크플로우",
         "Q2_현상과_RootCause_도출정의",
         "Q3_RootCause해소_무엇을바꿔야하는가",
@@ -157,10 +157,9 @@ function doPost(e) {
       sheet.getRange("1:1").setFontWeight("bold");
     }
 
-    // 기존 시트에 헤더가 구버전이면 필요한 컬럼을 뒤에 추가
     var headerRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     var headers = headerRow.map(function(h) { return String(h || "").trim(); });
-    var required = ["일시", "사용자키", "소속본부", "이름", "직급", "과제ID", "본부", "과제명",
+    var required = ["일시", "사용자키", "소속본부", "이름", "직급", "과제ID", "본부", "과제명", "PDF_결과물_링크",
       "Q1_대상과업_현재수행방식_워크플로우",
       "Q2_현상과_RootCause_도출정의",
       "Q3_RootCause해소_무엇을바꿔야하는가",
@@ -215,6 +214,7 @@ function doPost(e) {
     if (colIndex["과제ID"]) sheet.getRange(targetRow, colIndex["과제ID"]).setValue(taskId);
     if (colIndex["본부"]) sheet.getRange(targetRow, colIndex["본부"]).setValue(taskDept);
     if (colIndex["과제명"]) sheet.getRange(targetRow, colIndex["과제명"]).setValue(expectedArea);
+    if (colIndex["PDF_결과물_링크"]) sheet.getRange(targetRow, colIndex["PDF_결과물_링크"]).setValue(String(payload.pdfResultLink || ""));
 
     if (colIndex["Q1_대상과업_현재수행방식_워크플로우"]) sheet.getRange(targetRow, colIndex["Q1_대상과업_현재수행방식_워크플로우"]).setValue(c.q1 || "");
     if (colIndex["Q2_현상과_RootCause_도출정의"]) sheet.getRange(targetRow, colIndex["Q2_현상과_RootCause_도출정의"]).setValue(c.q2 || "");

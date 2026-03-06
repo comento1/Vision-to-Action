@@ -20,10 +20,10 @@ import {
 } from 'lucide-react';
 import { MOCK_TASKS } from './constants';
 import { ExecutiveTask, ProjectDefinition, Department, ConcretizeForm } from './types';
-import { cn } from './lib/utils';
+import { cn, bulletToNumbered } from './lib/utils';
 import Markdown from 'react-markdown';
 import { getAiCoaching, suggestKpis, getConcretizeGuides } from './services/geminiService';
-import { fetchTasks, saveWrittenContent, fetchWrittenContents, type UserProfile, type WrittenEntry } from './services/sheetService';
+import { fetchTasks, saveWrittenContent, fetchWrittenContents, toUserKey, type UserProfile, type WrittenEntry } from './services/sheetService';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -72,6 +72,20 @@ export default function App() {
     loadTasks();
   }, []);
 
+  // 시트에 저장된 PDF 결과물 링크(?report=1&taskId=xxx)로 접근 시 해당 과제 Export 화면으로 진입
+  useEffect(() => {
+    if (typeof window === 'undefined' || tasks.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('report') !== '1') return;
+    const taskId = params.get('taskId');
+    if (!taskId) return;
+    const task = tasks.find((t) => t.id === decodeURIComponent(taskId));
+    if (task) {
+      setSelectedTask(task);
+      setCurrentStep('export');
+    }
+  }, [tasks]);
+
   useEffect(() => {
     const loadGuides = async () => {
       if (currentStep !== 'concretize' || !selectedTask) return;
@@ -112,30 +126,45 @@ export default function App() {
   };
 
   const loadWrittenEntries = async (p: UserProfile) => {
+    const hasProfile = p.org?.trim() && p.name?.trim() && p.title?.trim();
+    if (!hasProfile) {
+      setWrittenEntries([]);
+      return;
+    }
     setWrittenLoadError('');
     const result = await fetchWrittenContents(p);
     if (result.error) setWrittenLoadError(result.error);
-    setWrittenEntries(result.items || []);
+    const myKey = toUserKey(p);
+    const mineOnly = (result.items || []).filter((e) => String(e.userKey || '').trim() === myKey);
+    setWrittenEntries(mineOnly);
   };
 
+  /** WrittenEntry만으로 최소 ExecutiveTask 생성 (과제 목록에 없을 때 수정 단계 진입용) */
+  const entryToTask = (entry: WrittenEntry): ExecutiveTask => ({
+    id: entry.taskId,
+    department: entry.taskDepartment || '',
+    priority: '',
+    expectedArea: entry.expectedArea || '',
+    reason: '',
+    expectedChange: '',
+    executingOrg: '',
+    considerations: '',
+    oneLineSummary: '',
+    workflow: '',
+    leaderKeyPoints: '',
+    explorationQuestions: '',
+    implementationScope: '',
+    preReviewItems: '',
+    successDefinition: '',
+    coreData: {},
+    interpretationData: {},
+    allData: {},
+  });
+
   const selectWrittenEntry = (entry: WrittenEntry) => {
-    const task = tasks.find(t => t.id === entry.taskId);
-    if (task) {
-      setSelectedTask(task);
-      setDepartmentFilter('전체');
-      setConcretize({
-        q1: entry.concretize.q1 || '',
-        q2: entry.concretize.q2 || '',
-        q3: entry.concretize.q3 || '',
-        q4: entry.concretize.q4 || '',
-        q5: entry.concretize.q5 || '',
-        q6: entry.concretize.q6 || '',
-      });
-      setCurrentStep('concretize');
-      setIsWrittenModalOpen(false);
-      return;
-    }
-    // 과제 목록에 없는 경우에도 입력값은 유지하고, 대시보드에서 해당 과제를 다시 선택하도록 유도
+    const task = tasks.find((t) => t.id === entry.taskId) || entryToTask(entry);
+    setSelectedTask(task);
+    setDepartmentFilter('전체');
     setConcretize({
       q1: entry.concretize.q1 || '',
       q2: entry.concretize.q2 || '',
@@ -144,21 +173,25 @@ export default function App() {
       q5: entry.concretize.q5 || '',
       q6: entry.concretize.q6 || '',
     });
+    setCurrentStep('concretize');
     setIsWrittenModalOpen(false);
   };
 
   const handleGoToExport = async () => {
     if (!selectedTask) return;
     setSaveStatus('saving');
+    const base = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname || '/'}` : '';
+    const reportLink = base ? `${base}?report=1&taskId=${encodeURIComponent(selectedTask.id)}` : '';
     const result = await saveWrittenContent({
       taskId: selectedTask.id,
       department: selectedTask.department,
       expectedArea: selectedTask.expectedArea,
       user: profile,
+      pdfResultLink: reportLink,
       concretize: {
         q1: concretize.q1,
         q2: concretize.q2,
-        q3: '', // 문항 삭제(보존용 컬럼은 빈 값)
+        q3: '',
         q4: concretize.q4,
         q5: concretize.q5,
         q6: concretize.q6,
@@ -166,7 +199,6 @@ export default function App() {
     });
     setSaveStatus(result.success ? 'saved' : 'error');
     setCurrentStep('export');
-    // 저장 후 최신 작성내용 다시 조회 (대시보드의 '기존 작성내용' 업데이트)
     if (profile.org && profile.name && profile.title) {
       await loadWrittenEntries(profile);
     }
@@ -199,18 +231,77 @@ export default function App() {
   };
 
   const exportToPDF = async () => {
-    const element = document.getElementById('report-content');
+    const element = document.getElementById("report-content");
     if (!element) return;
-    
-    const canvas = await html2canvas(element, { scale: 2 });
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const imgProps = pdf.getImageProperties(imgData);
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-    
-    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`VisionToAction_Report_${selectedTask?.id}.pdf`);
+
+    const pdfSafeCss = `
+      .pdf-safe, .pdf-safe * { box-shadow: none !important; text-shadow: none !important; }
+      .pdf-safe { background-color: #ffffff !important; color: #0f172a !important; }
+      .pdf-safe .bg-slate-900, .pdf-safe [class*="bg-slate-900"] { background-color: #0f172a !important; color: #e2e8f0 !important; }
+      .pdf-safe .bg-slate-50, .pdf-safe [class*="bg-slate-50"] { background-color: #f8fafc !important; }
+      .pdf-safe .bg-gray-100, .pdf-safe [class*="bg-gray-100"] { background-color: #f3f4f6 !important; }
+      .pdf-safe .bg-white { background-color: #ffffff !important; }
+      .pdf-safe .text-slate-900, .pdf-safe [class*="text-slate-900"] { color: #0f172a !important; }
+      .pdf-safe .text-slate-800 { color: #1e293b !important; }
+      .pdf-safe .text-slate-700 { color: #334155 !important; }
+      .pdf-safe .text-slate-600 { color: #475569 !important; }
+      .pdf-safe .text-slate-500 { color: #64748b !important; }
+      .pdf-safe .text-slate-400 { color: #94a3b8 !important; }
+      .pdf-safe .text-slate-300 { color: #cbd5e1 !important; }
+      .pdf-safe .text-emerald-600 { color: #059669 !important; }
+      .pdf-safe .border-slate-100, .pdf-safe .border-gray-100 { border-color: #e2e8f0 !important; }
+    `;
+
+    const forceHexInClone = (el: HTMLElement) => {
+      const cls = el.className || "";
+      if (typeof cls !== "string") return;
+      if (cls.includes("bg-slate-900")) {
+        el.style.setProperty("background-color", "#0f172a", "important");
+        el.style.setProperty("color", "#e2e8f0", "important");
+      } else if (cls.includes("bg-slate-50")) el.style.setProperty("background-color", "#f8fafc", "important");
+      else if (cls.includes("bg-gray-100")) el.style.setProperty("background-color", "#f3f4f6", "important");
+      else if (cls.includes("bg-white")) el.style.setProperty("background-color", "#ffffff", "important");
+      else if (cls.includes("text-slate-900")) el.style.setProperty("color", "#0f172a", "important");
+      else if (cls.includes("text-slate-800")) el.style.setProperty("color", "#1e293b", "important");
+      else if (cls.includes("text-slate-700")) el.style.setProperty("color", "#334155", "important");
+      else if (cls.includes("text-slate-600")) el.style.setProperty("color", "#475569", "important");
+      else if (cls.includes("text-slate-500")) el.style.setProperty("color", "#64748b", "important");
+      else if (cls.includes("text-slate-400")) el.style.setProperty("color", "#94a3b8", "important");
+      else if (cls.includes("text-slate-300")) el.style.setProperty("color", "#cbd5e1", "important");
+      el.style.setProperty("box-shadow", "none", "important");
+      el.style.setProperty("text-shadow", "none", "important");
+      Array.from(el.children).forEach((c) => c instanceof HTMLElement && forceHexInClone(c));
+    };
+
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        onclone: (_doc, clonedEl) => {
+          const style = _doc.createElement("style");
+          style.textContent = pdfSafeCss;
+          _doc.head.appendChild(style);
+          clonedEl.style.setProperty("color", "#0f172a");
+          clonedEl.style.setProperty("background-color", "#ffffff");
+          forceHexInClone(clonedEl as HTMLElement);
+        },
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`VisionToAction_Report_${selectedTask?.id}.pdf`);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (typeof window !== "undefined" && window.alert) {
+        window.alert(`PDF 생성 중 오류가 발생했습니다. 브라우저에서 인쇄(Ctrl+P) 후 "PDF로 저장"을 선택해 주세요. (오류: ${msg})`);
+      }
+    }
   };
 
   return (
@@ -276,7 +367,7 @@ export default function App() {
             <div className="flex items-start justify-between gap-6">
               <div>
                 <h2 className="text-2xl font-black text-slate-900 mb-1">기존 작성내용 확인하기</h2>
-                <p className="text-slate-500 text-sm font-medium">이름/직급 기준으로 저장된 작성내용을 불러옵니다. 항목을 선택하면 이어서 수정할 수 있습니다.</p>
+                <p className="text-slate-500 text-sm font-medium">접속 시 입력한 소속·이름·직급 기준으로 본인이 작성한 내용만 표시됩니다. 항목을 선택하면 구체화(수정) 단계로 이동해 이어서 수정할 수 있습니다.</p>
               </div>
               <button
                 onClick={() => setIsWrittenModalOpen(false)}
@@ -373,23 +464,29 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-10"
             >
+              <div className="flex items-center justify-between gap-4">
+                <button
+                  onClick={() => {
+                    if (profile.org?.trim() && profile.name?.trim() && profile.title?.trim()) {
+                      loadWrittenEntries(profile).then(() => setIsWrittenModalOpen(true));
+                    } else {
+                      setIsWrittenModalOpen(true);
+                    }
+                  }}
+                  className="shrink-0 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-black hover:bg-slate-800 transition-all flex items-center gap-2"
+                >
+                  <FileText size={18} />
+                  기존 작성 내용 확인하기
+                </button>
+                <div className="min-w-0" />
+              </div>
               <div className="space-y-8">
                 <div className="space-y-3">
                   <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-50 text-[#ED1C24] rounded-full text-[10px] font-black uppercase tracking-widest border border-red-100">
                     <Sparkles size={12} /> Executive Vision Bridge
                   </div>
                   <h2 className="text-5xl font-black tracking-tighter text-slate-900 leading-none">본부별 <span className="text-[#ED1C24]">AI 활용 영역</span> 대시보드</h2>
-                  <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
-                    <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed whitespace-nowrap">임원진이 도출한 AI 활용 영역을 확인하고, 팀의 역량을 집중할 핵심 과제를 선택하여 구체화하세요.</p>
-                    {writtenEntries.length > 0 && (
-                      <button
-                        onClick={() => setIsWrittenModalOpen(true)}
-                        className="w-fit px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-black hover:bg-slate-800 transition-all"
-                      >
-                        기존 작성내용 확인하기
-                      </button>
-                    )}
-                  </div>
+                  <p className="text-slate-600 text-lg max-w-2xl font-medium leading-relaxed">임원진이 도출한 AI 활용 영역을 확인하고, 팀의 역량을 집중할 핵심 과제를 선택하여 구체화하세요.</p>
                 </div>
                 {/* 부제 하단: 구글 시트 A열 기준 전체 본부 선택 버튼 */}
                 <div className="flex flex-wrap items-center gap-2 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
@@ -539,32 +636,32 @@ export default function App() {
                           <p className="text-slate-800 text-base font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.oneLineSummary}</p>
                         </div>
                         <div className="p-6 bg-slate-900 text-white rounded-xl shadow-lg">
-                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">현재 업무 흐름(워크플로우) 참고</h4>
-                          <p className="text-slate-300 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.workflow}</p>
+                          <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">AI 적용 시 기대되는 전체 워크플로우 예시</h4>
+                          <p className="text-slate-300 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.workflow)}</p>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                           <div className="p-5 bg-white rounded-xl border border-slate-100">
                             <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">팀장 관점 핵심 포인트</h4>
-                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.leaderKeyPoints}</p>
+                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.leaderKeyPoints)}</p>
                           </div>
                           <div className="p-5 bg-white rounded-xl border border-slate-100">
                             <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">구체화 탐색 질문</h4>
-                            <p className="text-slate-700 text-sm font-medium leading-relaxed italic whitespace-pre-wrap">{selectedTask.explorationQuestions}</p>
+                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.explorationQuestions)}</p>
                           </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                           <div className="p-5 bg-white rounded-xl border border-slate-100">
                             <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">현실적인 구현 범위(힌트)</h4>
-                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.implementationScope}</p>
+                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.implementationScope)}</p>
                           </div>
                           <div className="p-5 bg-white rounded-xl border border-slate-100">
                             <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">구현 전 검토 사항</h4>
-                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.preReviewItems}</p>
+                            <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.preReviewItems)}</p>
                           </div>
                         </div>
                         <div className="p-5 bg-amber-50 rounded-xl border border-amber-100">
                           <h4 className="text-sm font-black text-amber-800 tracking-tight mb-2">성공의 정의(평가 기준)</h4>
-                          <p className="text-slate-800 text-sm font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.successDefinition}</p>
+                          <p className="text-slate-800 text-sm font-bold leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.successDefinition)}</p>
                         </div>
                       </div>
                     </section>
@@ -585,19 +682,27 @@ export default function App() {
                 <div className="bg-slate-900 text-white rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden">
                   <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-3xl" />
                   <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-[#ED1C24]">
-                    <Sparkles size={24} /> North Star Guide
+                    <Sparkles size={24} /> 팀장 필수 확인 사항
                   </h3>
-                  <p className="text-slate-300 text-sm leading-relaxed mb-10 font-medium">
-                    "단순 반복 업무에서 해방되어, 팀장님의 진짜 전문성이 필요한 전략적 의사결정에 집중할 수 있는 환경을 만드는 것이 이 과제의 핵심입니다."
+                  <p className="text-slate-300 text-sm leading-relaxed mb-6 font-medium">
+                    구현 단계로 넘기기 전에, 아래 관점에서 과제가 명확한지 점검하세요.
                   </p>
-                  <div className="space-y-6">
+                  <div className="space-y-5">
                     <div className="flex items-start gap-4 group">
-                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black group-hover:bg-[#ED1C24] transition-colors">1</div>
-                      <p className="text-xs text-slate-400 font-bold leading-relaxed">현장의 고충(Pain Point)을 데이터로 증명하세요.</p>
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">1</div>
+                      <p className="text-xs text-slate-300 font-bold leading-relaxed">비효율·개선 포인트를 <span className="text-white">구체적 수치·사례</span>로 적었는가? (예: 소요 시간, 발생 빈도, 오류율)</p>
                     </div>
                     <div className="flex items-start gap-4 group">
-                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black group-hover:bg-[#ED1C24] transition-colors">2</div>
-                      <p className="text-xs text-slate-400 font-bold leading-relaxed">성공의 정의를 '시간 단축' 그 이상으로 정의하세요.</p>
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">2</div>
+                      <p className="text-xs text-slate-300 font-bold leading-relaxed">성공의 정의가 <span className="text-white">측정 가능한 기준</span>으로 되어 있는가? (단순 “시간 단축”이 아닌, 얼마나·어떤 결과물까지)</p>
+                    </div>
+                    <div className="flex items-start gap-4 group">
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">3</div>
+                      <p className="text-xs text-slate-300 font-bold leading-relaxed">구현 범위가 <span className="text-white">한 번에 달성 가능한 수준</span>으로 한정되어 있는가? (과도한 범위는 실패 요인)</p>
+                    </div>
+                    <div className="flex items-start gap-4 group">
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#ED1C24] transition-colors">4</div>
+                      <p className="text-xs text-slate-300 font-bold leading-relaxed">결과물에 <span className="text-white">반드시 포함되어야 할 산출물·기능</span>이 명시되어 있는가? (구현자가 빠뜨리지 않도록)</p>
                     </div>
                   </div>
                 </div>
@@ -636,10 +741,10 @@ export default function App() {
 
                   <div className="space-y-10">
                     {[
-                      { num: 1, key: 'q1', title: '개선하고자 하는 대상 과업을 현재는 어떻게 수행하고 있는지 정리해 주세요.', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideText: concretizeGuides.q1 || '' },
-                      { num: 2, key: 'q2', title: '현재의 수행방식으로 인해 발생된 병목 및 비효율은 무엇인가요?', value: concretize.q2, onChange: (v: string) => setConcretize(prev => ({ ...prev, q2: v })), guideText: concretizeGuides.q2 || '' },
-                      { num: 3, key: 'q4', title: '병목 및 비효율이 AI 기반으로 어떻게 해소되길 기대하십니까?', value: concretize.q4, onChange: (v: string) => setConcretize(prev => ({ ...prev, q4: v })), guideText: concretizeGuides.q4 || '' },
-                      { num: 4, key: 'q5', title: '이 문제가 성공적으로 해소되었다고 판단하기 위해 무엇이 달성되거나, 구현된 결과물에 포함되어 있어야 합니까?', value: concretize.q5, onChange: (v: string) => setConcretize(prev => ({ ...prev, q5: v })), guideText: concretizeGuides.q5 || '' },
+                      { num: 1, key: 'q1', title: '현재는 해당 과업을 어떻게 수행하고 있는지 상세하게 정리해주세요.', value: concretize.q1, onChange: (v: string) => setConcretize(prev => ({ ...prev, q1: v })), guideText: concretizeGuides.q1 || '' },
+                      { num: 2, key: 'q2', title: '현재의 수행방식으로 인해 발생된 비효율 및 개선 포인트는 무엇인가요?', value: concretize.q2, onChange: (v: string) => setConcretize(prev => ({ ...prev, q2: v })), guideText: concretizeGuides.q2 || '' },
+                      { num: 3, key: 'q4', title: '선택한 과업이 AI를 기반으로 어떻게 생산성이 향상되기를 기대하십니까?', value: concretize.q4, onChange: (v: string) => setConcretize(prev => ({ ...prev, q4: v })), guideText: concretizeGuides.q4 || '' },
+                      { num: 4, key: 'q5', title: '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 포함되어야 할 것은 무엇입니까?', value: concretize.q5, onChange: (v: string) => setConcretize(prev => ({ ...prev, q5: v })), guideText: concretizeGuides.q5 || '' },
                       { num: 5, key: 'q6', title: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가요?', value: concretize.q6, onChange: (v: string) => setConcretize(prev => ({ ...prev, q6: v })), guideText: concretizeGuides.q6 || '' },
                     ].map(({ num, title, value, onChange, guideText }) => (
                       <section key={num} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-6">
@@ -675,10 +780,25 @@ export default function App() {
 
               <div className="space-y-8">
                 <div className="bg-slate-900 text-white rounded-[2.5rem] p-8 sticky top-32">
-                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><FileText size={20} /> 작성 안내</h3>
-                  <p className="text-slate-300 text-sm leading-relaxed font-medium">
-                    작성 가이드는 임원 리뷰 내용을 종합해 자동으로 생성됩니다. 아래 질문에 대해 가능한 한 구체적으로 작성하면, 이후 구현자가 바로 실행 가능한 형태로 인계할 수 있습니다.
-                  </p>
+                  <h3 className="text-lg font-black mb-4 flex items-center gap-2 text-[#ED1C24]"><FileText size={20} /> 작성 시 팀장이 지킬 것</h3>
+                  <ul className="space-y-3 text-slate-300 text-sm font-medium leading-relaxed">
+                    <li className="flex items-start gap-2">
+                      <span className="text-[#ED1C24] font-black shrink-0">·</span>
+                      <span>각 질문은 <strong className="text-white">실행 가능한 문장</strong>으로 작성 (예: “~를 자동화한다”보다 “~ 조건일 때 ~ 형식으로 리포트를 생성한다”)</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-[#ED1C24] font-black shrink-0">·</span>
+                      <span>수치·기준이 있으면 <strong className="text-white">반드시 명시</strong> (소요 시간, 건수, 품질 기준 등)</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-[#ED1C24] font-black shrink-0">·</span>
+                      <span>결과물에 “반드시 포함되어야 할 것”은 <strong className="text-white">체크리스트 형태</strong>로 구체화</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-[#ED1C24] font-black shrink-0">·</span>
+                      <span>구현 시 예상 어려움은 <strong className="text-white">데이터·권한·시스템</strong> 등 유형별로 구분해 적기</span>
+                    </li>
+                  </ul>
                 </div>
               </div>
             </motion.div>
@@ -777,10 +897,10 @@ export default function App() {
                     </div>
                     <div className="space-y-6">
                       {[
-                        { label: '개선하고자 하는 대상 과업을 현재는 어떻게 수행하고 있는지 정리해 주세요.', value: concretize.q1 },
-                        { label: '현재의 수행방식으로 인해 발생된 병목 및 비효율은 무엇인가요?', value: concretize.q2 },
-                        { label: '병목 및 비효율이 AI 기반으로 어떻게 해소되길 기대하십니까?', value: concretize.q4 },
-                        { label: '이 문제가 성공적으로 해소되었다고 판단하기 위해 무엇이 달성되거나, 구현된 결과물에 포함되어 있어야 합니까?', value: concretize.q5 },
+                        { label: '현재는 해당 과업을 어떻게 수행하고 있는지 상세하게 정리해주세요.', value: concretize.q1 },
+                        { label: '현재의 수행방식으로 인해 발생된 비효율 및 개선 포인트는 무엇인가요?', value: concretize.q2 },
+                        { label: '선택한 과업이 AI를 기반으로 어떻게 생산성이 향상되기를 기대하십니까?', value: concretize.q4 },
+                        { label: '이 문제가 AI를 기반으로 성공적으로 해소/생산성이 향상되었다고 인정 받기 위해, 달성되어야 하거나, 구현된 결과물에 반드시 포함되어야 할 것은 무엇입니까?', value: concretize.q5 },
                         { label: '구현 과정에서 고려해야 할 혹은 예상되는 어려움은 무엇인가요?', value: concretize.q6 },
                       ].map(({ label, value }, i) => (
                         <div key={i} className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
