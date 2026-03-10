@@ -16,10 +16,14 @@ import {
   Sparkles,
   Search,
   Filter,
-  RefreshCw
+  RefreshCw,
+  PenLine,
+  Lightbulb,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { MOCK_TASKS } from './constants';
-import { ExecutiveTask, ProjectDefinition, Department, ConcretizeForm } from './types';
+import { ExecutiveTask, ProjectDefinition, Department, ConcretizeForm, DerivedTopic } from './types';
 import { cn, bulletToNumbered } from './lib/utils';
 import Markdown from 'react-markdown';
 import { getAiCoaching, suggestKpis, getConcretizeGuides } from './services/geminiService';
@@ -27,7 +31,7 @@ import { fetchTasks, saveWrittenContent, fetchWrittenContents, toUserKey, type U
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
-type Step = 'dashboard' | 'review' | 'concretize' | 'export';
+type Step = 'dashboard' | 'review' | 'concretize' | 'ideation' | 'export';
 
 const LOTTE_LOGO = "https://potens-box.s3.ap-northeast-2.amazonaws.com/IMG%2F%EB%A1%AF%EB%8D%B0%EC%9B%B0%ED%91%B8%EB%93%9C.png";
 
@@ -70,6 +74,10 @@ export default function App() {
   const [concretizeChatReply, setConcretizeChatReply] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isGuideLoading, setIsGuideLoading] = useState(false);
+  /** 추가 도출 주제 (최소 1개, 구체화 이후 단계) */
+  const [derivedTopics, setDerivedTopics] = useState<DerivedTopic[]>([
+    { id: 'topic-0', title: '', reason: '', expectedDirection: '', topicType: 'within' },
+  ]);
 
   const formatGuideText = (text: string) => {
     const t = String(text || "").trim();
@@ -120,6 +128,10 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [currentStep]);
+
+  useEffect(() => {
+    setDerivedTopics([{ id: 'topic-0', title: '', reason: '', expectedDirection: '', topicType: 'within' }]);
+  }, [selectedTask?.id]);
 
   // 대시보드 진입 시 작성 내역 미리 로드 → 버튼 조건부 표시 및 클릭 시 즉시 모달
   const hasProfile = Boolean(profile.org?.trim() && profile.name?.trim() && profile.title?.trim());
@@ -543,25 +555,34 @@ export default function App() {
         </div>
         
         <nav className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-2xl border border-gray-100">
-          {(['dashboard', 'review', 'concretize', 'export'] as Step[]).map((step, idx) => (
-            <button
-              key={step}
-              onClick={() => selectedTask && setCurrentStep(step)}
-              disabled={!selectedTask && step !== 'dashboard'}
-              className={cn(
-                "px-5 py-2 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2",
-                currentStep === step 
-                  ? "bg-[#ED1C24] text-white shadow-md shadow-red-200" 
-                  : "text-gray-400 hover:text-gray-600 disabled:opacity-30"
-              )}
-            >
-              <span className={cn(
-                "w-5 h-5 rounded-full flex items-center justify-center text-[10px]",
-                currentStep === step ? "bg-white/20" : "bg-gray-200"
-              )}>{idx + 1}</span>
-              {step.charAt(0).toUpperCase() + step.slice(1)}
-            </button>
-          ))}
+          {(['dashboard', 'review', 'concretize', 'ideation', 'export'] as Step[]).map((step, idx) => {
+            const stepLabels: Record<Step, string> = {
+              dashboard: 'Dashboard',
+              review: 'Review',
+              concretize: 'Concretize',
+              ideation: '주제 도출',
+              export: 'Export',
+            };
+            return (
+              <button
+                key={step}
+                onClick={() => selectedTask && setCurrentStep(step)}
+                disabled={!selectedTask && step !== 'dashboard'}
+                className={cn(
+                  "px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 flex items-center gap-2",
+                  currentStep === step 
+                    ? "bg-[#ED1C24] text-white shadow-md shadow-red-200" 
+                    : "text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                )}
+              >
+                <span className={cn(
+                  "w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0",
+                  currentStep === step ? "bg-white/20" : "bg-gray-200"
+                )}>{idx + 1}</span>
+                {stepLabels[step]}
+              </button>
+            );
+          })}
         </nav>
       </header>
 
@@ -700,13 +721,19 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 좌(임원 작성) vs 우(AI 검토) 헤더 */}
+                {/* 좌(임원 작성) vs 우(AI 검토) 헤더 - 시선 유도 강조 */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                  <div className="rounded-2xl border-2 border-[#ED1C24]/30 bg-red-50/40 p-5">
-                    <p className="text-sm font-black text-[#ED1C24] tracking-tight">임원진이 실제로 작성해 주신 내용입니다.</p>
+                  <div className="rounded-2xl border-2 border-[#ED1C24]/40 bg-red-50/50 p-6 flex items-center gap-4 shadow-sm">
+                    <div className="w-12 h-12 rounded-xl bg-[#ED1C24]/15 flex items-center justify-center shrink-0">
+                      <PenLine className="w-6 h-6 text-[#ED1C24]" />
+                    </div>
+                    <p className="text-base md:text-lg font-extrabold text-[#ED1C24] tracking-tight leading-snug">임원진이 실제로 작성해 주신 내용입니다.</p>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
-                    <p className="text-sm font-black text-slate-600 tracking-tight">임원진이 작성한 내용을 AI로 검토한 내용입니다.</p>
+                  <div className="rounded-2xl border-2 border-slate-200 bg-slate-50/80 p-6 flex items-center gap-4 shadow-sm">
+                    <div className="w-12 h-12 rounded-xl bg-slate-200/80 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-6 h-6 text-slate-600" />
+                    </div>
+                    <p className="text-base md:text-lg font-extrabold text-slate-700 tracking-tight leading-snug">임원진이 작성한 내용을 AI로 검토한 내용입니다.</p>
                   </div>
                 </div>
 
@@ -845,10 +872,10 @@ export default function App() {
                   <div className="mt-14 flex justify-between items-center">
                     <button onClick={() => setCurrentStep('review')} className="px-6 py-3 text-slate-500 font-bold rounded-xl hover:bg-slate-100 transition-all">이전</button>
                     <button
-                      onClick={handleGoToExport}
+                      onClick={() => setCurrentStep('ideation')}
                       className="px-10 py-5 bg-[#ED1C24] text-white rounded-2xl font-black text-lg flex items-center gap-3 hover:bg-[#D11920] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-500/20"
                     >
-                      최종 보고서 확인하기 <ChevronRight size={24} />
+                      다음: 추가 주제 도출 <ChevronRight size={24} />
                     </button>
                   </div>
                 </div>
@@ -909,6 +936,130 @@ export default function App() {
                       </div>
                     ) : null}
                   </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {currentStep === 'ideation' && selectedTask && (
+            <motion.div
+              key="ideation"
+              initial={{ opacity: 0, x: 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -30 }}
+              className="space-y-10"
+            >
+              <div className="bg-white rounded-[3rem] p-12 shadow-xl shadow-slate-200/50 border border-gray-100">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-16 h-16 bg-amber-50 rounded-3xl flex items-center justify-center text-amber-600 shadow-inner">
+                    <Lightbulb size={32} />
+                  </div>
+                  <div>
+                    <h2 className="text-4xl font-black tracking-tighter text-slate-900">추가 주제 도출</h2>
+                    <p className="text-slate-500 font-bold text-sm mt-2 leading-relaxed max-w-3xl">
+                      임원진이 도출한 영역을 리뷰·구체화한 경험을 바탕으로, 추가로 도출하고 싶은 주제를 적어 주세요.
+                      <br />
+                      <span className="text-slate-600">임원 도출 영역 내 추가 주제</span> 또는 <span className="text-slate-600">임원이 도출하지 않았으나 중요도가 높다고 판단되는 새 주제</span>를 최소 1개 이상 입력해 주세요.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-8">
+                  {derivedTopics.map((topic, idx) => (
+                    <section
+                      key={topic.id}
+                      className="rounded-[2rem] border-2 border-slate-200 bg-slate-50/40 p-6 md:p-8 relative"
+                    >
+                      <div className="flex items-center justify-between mb-6">
+                        <span className="text-sm font-black text-slate-500 uppercase tracking-widest">주제 #{idx + 1}</span>
+                        {derivedTopics.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setDerivedTopics(prev => prev.filter(t => t.id !== topic.id))}
+                            className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                            title="이 주제 삭제"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">주제명 (한 줄 요약) *</label>
+                          <input
+                            value={topic.title}
+                            onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, title: e.target.value } : t))}
+                            placeholder="예: 해외법인 실적 데이터 자동 수집 및 대시보드 연동"
+                            className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">이 주제를 도출한 이유 (앞선 과제와의 연관성 또는 중요도) *</label>
+                          <textarea
+                            value={topic.reason}
+                            onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, reason: e.target.value } : t))}
+                            placeholder="예: 앞서 구체화한 ‘실적 데이터 정합성’ 과제와 연계되며, 동일 데이터 소스에서 활용 범위를 넓히는 주제입니다."
+                            className="w-full min-h-[80px] p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800 resize-y"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">AI 적용 시 기대하는 방향 *</label>
+                          <textarea
+                            value={topic.expectedDirection}
+                            onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, expectedDirection: e.target.value } : t))}
+                            placeholder="예: 수작업 엑셀 정리 대신 API/스케줄 기반 자동 수집 후 대시보드에 반영되어 의사결정 속도가 빨라지는 것."
+                            className="w-full min-h-[80px] p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800 resize-y"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">유형</label>
+                          <select
+                            value={topic.topicType}
+                            onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, topicType: e.target.value as 'within' | 'new' } : t))}
+                            className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800"
+                          >
+                            <option value="within">임원 도출 영역 내 추가 주제</option>
+                            <option value="new">임원이 도출하지 않은 새 주제</option>
+                          </select>
+                        </div>
+                      </div>
+                    </section>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setDerivedTopics(prev => [...prev, {
+                      id: `topic-${Date.now()}`,
+                      title: '',
+                      reason: '',
+                      expectedDirection: '',
+                      topicType: 'within',
+                    }])}
+                    className="w-full py-4 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 font-bold flex items-center justify-center gap-2 hover:border-[#ED1C24] hover:text-[#ED1C24] hover:bg-red-50/30 transition-all"
+                  >
+                    <Plus size={20} /> 주제 추가
+                  </button>
+                </div>
+
+                <div className="mt-14 flex justify-between items-center">
+                  <button
+                    onClick={() => setCurrentStep('concretize')}
+                    className="px-6 py-3 text-slate-500 font-bold rounded-xl hover:bg-slate-100 transition-all"
+                  >
+                    이전
+                  </button>
+                  <button
+                    onClick={handleGoToExport}
+                    disabled={!derivedTopics.some(t => t.title.trim().length > 0)}
+                    className={cn(
+                      "px-10 py-5 rounded-2xl font-black text-lg flex items-center gap-3 transition-all shadow-xl",
+                      derivedTopics.some(t => t.title.trim().length > 0)
+                        ? "bg-[#ED1C24] text-white hover:bg-[#D11920] hover:scale-105 active:scale-95 shadow-red-500/20"
+                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                    )}
+                  >
+                    최종 보고서 확인하기 <ChevronRight size={24} />
+                  </button>
                 </div>
               </div>
             </motion.div>
@@ -1031,6 +1182,30 @@ export default function App() {
                       ))}
                     </div>
                   </section>
+
+                  {derivedTopics.some(t => t.title.trim()) && (
+                    <section>
+                      <div className="flex items-center gap-3 bg-slate-900 text-white px-6 py-3 rounded-2xl mb-8 shadow-lg">
+                        <Lightbulb size={20} className="text-amber-400" />
+                        <span className="text-lg font-black uppercase tracking-tight">4. 추가 도출 주제</span>
+                      </div>
+                      <div className="space-y-6">
+                        {derivedTopics.filter(t => t.title.trim()).map((topic, i) => (
+                          <div key={topic.id} className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-xs font-black text-slate-400 uppercase tracking-widest">주제 {i + 1}</span>
+                              <span className="text-xs font-bold text-slate-400">
+                                {topic.topicType === 'within' ? '· 임원 도출 영역 내' : '· 새 주제'}
+                              </span>
+                            </div>
+                            <h4 className="text-base font-black text-slate-800 mb-2">{topic.title}</h4>
+                            <p className="text-sm font-medium text-slate-600 leading-relaxed whitespace-pre-wrap mb-2">{topic.reason || '—'}</p>
+                            <p className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{topic.expectedDirection || '—'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
 
                   <section className="pt-16 border-t-2 border-slate-100">
                     <div className="flex items-center justify-between">

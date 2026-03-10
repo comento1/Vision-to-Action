@@ -44,6 +44,19 @@ export interface ProjectDefinition {
   successDefinition: string;
 }
 
+/** 추가 도출 주제 (구체화 이후 아이디에이션 단계) */
+export interface DerivedTopic {
+  id: string;
+  /** 주제명 / 한줄 요약 */
+  title: string;
+  /** 이 주제를 도출한 이유 (앞선 과제와의 연관성 또는 중요도) */
+  reason: string;
+  /** AI 적용 시 기대하는 방향 */
+  expectedDirection: string;
+  /** 임원 도출 영역 내 추가 주제 | 임원이 도출하지 않은 새 주제 */
+  topicType: 'within' | 'new';
+}
+
 /** 구체화(Concretize) 단계 6개 질문 답안 */
 export interface ConcretizeForm {
   q1: string; // 대상 과업의 현재 수행방식(워크플로우) 정리하기
