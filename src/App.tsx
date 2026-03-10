@@ -70,8 +70,6 @@ export default function App() {
   const [concretizeChatReply, setConcretizeChatReply] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isGuideLoading, setIsGuideLoading] = useState(false);
-  const [reasonExpanded, setReasonExpanded] = useState(false);
-  const REASON_PREVIEW_LEN = 320;
 
   const formatGuideText = (text: string) => {
     const t = String(text || "").trim();
@@ -122,9 +120,6 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [currentStep]);
-  useEffect(() => {
-    setReasonExpanded(false);
-  }, [selectedTask?.id]);
 
   // 대시보드 진입 시 작성 내역 미리 로드 → 버튼 조건부 표시 및 클릭 시 즉시 모달
   const hasProfile = Boolean(profile.org?.trim() && profile.name?.trim() && profile.title?.trim());
@@ -636,7 +631,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {filteredTasks.map(task => (
+                  {filteredTasks.map((task, taskIndex) => (
                     <motion.div
                       key={task.id}
                       whileHover={{ y: -8, scale: 1.02 }}
@@ -653,11 +648,9 @@ export default function App() {
                           <span className="px-4 py-1.5 bg-slate-50 text-slate-500 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-100">
                             {task.department}
                           </span>
-                          {task.priority && (
-                            <span className="px-3 py-1.5 bg-red-50 text-[#ED1C24] rounded-full text-[10px] font-black border border-red-100">
-                              우선순위 {task.priority}
-                            </span>
-                          )}
+                          <span className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black border border-slate-200">
+                            #{taskIndex + 1}
+                          </span>
                         </div>
                         <span className="text-[10px] font-mono font-bold text-slate-300">{task.id}</span>
                       </div>
@@ -702,93 +695,74 @@ export default function App() {
                   <div>
                     <h2 className="text-4xl font-black tracking-tighter text-slate-900">임원진 비전 리뷰</h2>
                     <p className="text-slate-500 font-bold text-sm mt-2 leading-relaxed max-w-2xl">
-                      선택한 과제에 대해 임원진이 작성한 AI 적용 희망 영역과 과제 구체화를 위해 참고할 리뷰 내용을 확인합니다.
-                      <br />
-                      특히, &quot;임원진이 개선을 희망하는 업무 영역&quot;과 &quot;임원진은 왜 이 영역에 AI가 적용되길 기대했는지&quot;를 중점적으로 살펴보시고, 전략 구체화 단계를 진행해 주세요.
+                      선택한 과제에 대해 임원진이 작성한 내용과 AI 검토 내용을 좌우로 비교하며 확인합니다. 전략 구체화 단계로 진행해 주세요.
                     </p>
                   </div>
                 </div>
 
-                <div className="space-y-14">
-                  <section className="rounded-[2rem] border-2 border-[#ED1C24]/20 bg-red-50/30 p-8">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="w-10 h-10 rounded-xl bg-[#ED1C24] text-white flex items-center justify-center text-sm font-black">1</div>
-                      <div>
-                        <h3 className="text-lg font-black text-slate-900">임원진이 작성한 AI 적용 희망 영역을 확인해 보세요.</h3>
+                {/* 좌(임원 작성) vs 우(AI 검토) 헤더 */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                  <div className="rounded-2xl border-2 border-[#ED1C24]/30 bg-red-50/40 p-5">
+                    <p className="text-sm font-black text-[#ED1C24] tracking-tight">임원진이 실제로 작성해 주신 내용입니다.</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
+                    <p className="text-sm font-black text-slate-600 tracking-tight">임원진이 작성한 내용을 AI로 검토한 내용입니다.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-8">
+                  {/* 1단: AI를 적용하고 싶은 업무/영역 | 임원진이 개선을 희망하는 업무 영역 */}
+                  <section className="rounded-[2rem] border border-slate-200 bg-slate-50/30 p-6 md:p-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="p-6 bg-white rounded-2xl border-2 border-[#ED1C24]/20 shadow-md">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">AI를 적용하고 싶은 업무/영역</h4>
+                        <p className="text-slate-800 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedArea}</p>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI를 적용하고 싶은 업무/영역</h4>
-                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedArea}</p>
-                      </div>
-                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI 적용이 필요한 이유</h4>
-                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</p>
-                      </div>
-                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">AI 적용 후 기대하는 변화</h4>
-                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedChange}</p>
-                      </div>
-                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm">
-                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">수행 조직/협업 범위</h4>
-                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.executingOrg}</p>
-                      </div>
-                      <div className="p-5 bg-white rounded-xl border border-slate-100 shadow-sm md:col-span-2">
-                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">구현 시 고려해야 할 사항</h4>
-                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.considerations}</p>
+                      <div className="p-6 bg-white rounded-2xl border border-slate-100 shadow-sm opacity-95">
+                        <h4 className="text-sm font-black text-slate-600 tracking-tight mb-3">임원진이 개선을 희망하는 업무 영역</h4>
+                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.oneLineSummary}</p>
                       </div>
                     </div>
                   </section>
 
-                  <section className="rounded-[2rem] border-2 border-slate-200 bg-slate-50/50 p-8">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center text-sm font-black">2</div>
-                      <div>
-                        <h3 className="text-lg font-black text-slate-900">과제를 구체화하기 위해 과제 리뷰내용을 참고하세요.</h3>
-                      </div>
+                  {/* 2단: AI 적용이 필요한 이유 (전체 폭) */}
+                  <section className="rounded-[2rem] border border-slate-200 bg-slate-50/30 p-6 md:p-8">
+                    <div className="p-6 bg-white rounded-2xl border-2 border-[#ED1C24]/20 shadow-md">
+                      <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">AI 적용이 필요한 이유</h4>
+                      <p className="text-slate-800 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.reason}</p>
                     </div>
-                    <div className="space-y-5">
-                      <div className="p-5 bg-white rounded-xl border-2 border-[#ED1C24]/30 shadow-sm">
-                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">임원진이 개선을 희망하는 업무 영역</h4>
-                        <p className="text-slate-800 text-base font-bold leading-relaxed whitespace-pre-wrap">{selectedTask.oneLineSummary}</p>
+                  </section>
+
+                  {/* 3단: AI 적용 후 기대하는 변화 | AI 적용 시 기대되는 전체 워크플로우 예시 + Tip 팀장 관점 핵심 포인트 */}
+                  <section className="rounded-[2rem] border border-slate-200 bg-slate-50/30 p-6 md:p-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="p-6 bg-white rounded-2xl border-2 border-[#ED1C24]/20 shadow-md">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">AI 적용 후 기대하는 변화</h4>
+                        <p className="text-slate-800 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.expectedChange}</p>
                       </div>
-                      <div className="p-5 bg-white rounded-xl border-2 border-[#ED1C24]/30 shadow-sm">
-                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-2">임원진은 왜 이 영역에 AI가 적용되길 기대하는가</h4>
-                        <p className="text-slate-800 text-sm font-medium leading-relaxed whitespace-pre-wrap">
-                          {selectedTask.reason && selectedTask.reason.length > REASON_PREVIEW_LEN && !reasonExpanded
-                            ? selectedTask.reason.slice(0, REASON_PREVIEW_LEN).trim() + "…"
-                            : selectedTask.reason}
-                        </p>
-                        {selectedTask.reason && selectedTask.reason.length > REASON_PREVIEW_LEN && (
-                          <button type="button" onClick={() => setReasonExpanded((e) => !e)} className="text-xs font-bold text-[#ED1C24] mt-2">
-                            {reasonExpanded ? "요약 보기" : "전체 보기"}
-                          </button>
-                        )}
-                      </div>
-                      <div className="p-6 bg-slate-900 text-white rounded-xl shadow-lg">
-                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">AI 적용 시 기대되는 전체 워크플로우 예시</h4>
-                        <p className="text-slate-300 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.workflow)}</p>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        <div className="p-5 bg-white rounded-xl border border-slate-100">
-                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">팀장 관점 핵심 포인트</h4>
+                      <div className="space-y-4">
+                        <div className="p-6 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                          <h4 className="text-sm font-black text-slate-600 tracking-tight mb-3">AI 적용 시 기대되는 전체 워크플로우 예시</h4>
+                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.workflow)}</p>
+                        </div>
+                        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200">
+                          <p className="text-xs font-black text-amber-800 uppercase tracking-widest mb-2">Tip · 팀장 관점 핵심 포인트</p>
                           <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.leaderKeyPoints)}</p>
                         </div>
-                        <div className="p-5 bg-white rounded-xl border border-slate-100">
-                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">현실적인 구현 범위(힌트)</h4>
-                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.implementationScope)}</p>
-                        </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        <div className="p-5 bg-white rounded-xl border border-slate-100">
-                          <h4 className="text-sm font-black text-slate-800 tracking-tight mb-2">구현 전 검토 사항</h4>
-                          <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.preReviewItems)}</p>
-                        </div>
-                        <div className="p-5 bg-amber-50 rounded-xl border border-amber-100">
-                          <h4 className="text-sm font-black text-amber-800 tracking-tight mb-2">성공의 정의(평가 기준)</h4>
-                          <p className="text-slate-800 text-sm font-bold leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.successDefinition)}</p>
-                        </div>
+                    </div>
+                  </section>
+
+                  {/* 4단: 구현 시 고려해야 할 사항 | 구현 전 검토 사항 */}
+                  <section className="rounded-[2rem] border border-slate-200 bg-slate-50/30 p-6 md:p-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="p-6 bg-white rounded-2xl border-2 border-[#ED1C24]/20 shadow-md">
+                        <h4 className="text-sm font-black text-[#ED1C24] tracking-tight mb-3">구현 시 고려해야 할 사항</h4>
+                        <p className="text-slate-800 text-sm font-medium leading-relaxed whitespace-pre-wrap">{selectedTask.considerations}</p>
+                      </div>
+                      <div className="p-6 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                        <h4 className="text-sm font-black text-slate-600 tracking-tight mb-3">구현 전 검토 사항</h4>
+                        <p className="text-slate-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{bulletToNumbered(selectedTask.preReviewItems)}</p>
                       </div>
                     </div>
                   </section>
