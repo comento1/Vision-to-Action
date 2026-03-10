@@ -113,6 +113,11 @@ function handleGetWritten_(ss, e) {
     var userOrg = String(obj["소속본부"] || obj["소속 본부"] || obj["소속"] || "");
     var pdfLink = String(obj["PDF_결과물_링크"] || obj["PDF 결과물 링크"] || obj["PDF링크"] || "");
 
+    var derivedTopics = [];
+    try {
+      var raw = String(obj["추가도출주제_JSON"] || "").trim();
+      if (raw) derivedTopics = JSON.parse(raw);
+    } catch (e) {}
     items.push({
       timestamp: String(obj["일시"] || ""),
       userKey: String(obj["사용자키"] || ""),
@@ -130,7 +135,8 @@ function handleGetWritten_(ss, e) {
         q4: String(obj["Q4_AI기반_해소된모습"] || ""),
         q5: String(obj["Q5_솔루션_핵심포함요소"] || ""),
         q6: String(obj["Q6_구현시_고려예상어려움"] || "")
-      }
+      },
+      derivedTopics: Array.isArray(derivedTopics) ? derivedTopics : []
     });
   }
 
@@ -155,7 +161,8 @@ function doPost(e) {
       "Q3_RootCause해소_무엇을바꿔야하는가",
       "Q4_AI기반_해소된모습",
       "Q5_솔루션_핵심포함요소",
-      "Q6_구현시_고려예상어려움"
+      "Q6_구현시_고려예상어려움",
+      "추가도출주제_JSON"
     ];
 
     if (!sheet) {
@@ -191,7 +198,8 @@ function doPost(e) {
       "Q3_RootCause해소_무엇을바꿔야하는가",
       "Q4_AI기반_해소된모습",
       "Q5_솔루션_핵심포함요소",
-      "Q6_구현시_고려예상어려움"
+      "Q6_구현시_고려예상어려움",
+      "추가도출주제_JSON"
     ];
     for (var ri = 0; ri < required.length; ri++) {
       if (headers.indexOf(required[ri]) === -1) {
@@ -257,6 +265,14 @@ function doPost(e) {
     if (colIndex["Q4_AI기반_해소된모습"]) sheet.getRange(targetRow, colIndex["Q4_AI기반_해소된모습"]).setValue(c.q4 || "");
     if (colIndex["Q5_솔루션_핵심포함요소"]) sheet.getRange(targetRow, colIndex["Q5_솔루션_핵심포함요소"]).setValue(c.q5 || "");
     if (colIndex["Q6_구현시_고려예상어려움"]) sheet.getRange(targetRow, colIndex["Q6_구현시_고려예상어려움"]).setValue(c.q6 || "");
+
+    var derivedTopics = payload.derivedTopics;
+    var derivedCol = colIndex["추가도출주제_JSON"];
+    if (derivedCol && Array.isArray(derivedTopics)) {
+      try {
+        sheet.getRange(targetRow, derivedCol).setValue(JSON.stringify(derivedTopics));
+      } catch (e) {}
+    }
 
     return ContentService.createTextOutput(JSON.stringify({ success: true, updated: targetRow <= lastRow }))
       .setMimeType(ContentService.MimeType.JSON);

@@ -26,7 +26,7 @@ import { MOCK_TASKS } from './constants';
 import { ExecutiveTask, ProjectDefinition, Department, ConcretizeForm, DerivedTopic } from './types';
 import { cn, bulletToNumbered } from './lib/utils';
 import Markdown from 'react-markdown';
-import { getAiCoaching, suggestKpis, getConcretizeGuides } from './services/geminiService';
+import { getAiCoaching, suggestKpis, getConcretizeGuides, getIdeationExample } from './services/geminiService';
 import { fetchTasks, saveWrittenContent, fetchWrittenContents, toUserKey, type UserProfile, type WrittenEntry } from './services/sheetService';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -34,6 +34,29 @@ import html2canvas from 'html2canvas';
 type Step = 'dashboard' | 'review' | 'concretize' | 'ideation' | 'export';
 
 const LOTTE_LOGO = "https://potens-box.s3.ap-northeast-2.amazonaws.com/IMG%2F%EB%A1%AF%EB%8D%B0%EC%9B%B0%ED%91%B8%EB%93%9C.png";
+
+const STEP_GUIDES: Record<Step, { title: string; body: string }> = {
+  dashboard: {
+    title: '과제 선택',
+    body: '본부별로 임원진이 도출한 AI 활용 희망 영역을 확인하고, 팀에서 구체화할 과제를 하나 선택하세요. 카드를 클릭하면 다음 단계(비전 리뷰)로 이동합니다.',
+  },
+  review: {
+    title: '비전 리뷰',
+    body: '선택한 과제에 대해 임원진이 작성한 내용(좌측)과 AI가 검토한 내용(우측)을 좌우로 비교하며 확인하세요. 확인 후 아래 "전략 구체화 시작하기"로 진행합니다.',
+  },
+  concretize: {
+    title: '과제 구체화',
+    body: '임원진이 제시한 AI 적용 희망 영역을 바탕으로, 구현자가 바로 실행할 수 있도록 5가지 질문에 답하며 근본 원인을 규명하고 개선 방향을 구체화해 주세요. 오른쪽 패널에서 AI 피드백을 받을 수 있습니다.',
+  },
+  ideation: {
+    title: '주제 도출',
+    body: '리뷰·구체화한 경험을 바탕으로, 임원 도출 영역 내 추가 주제 또는 임원이 도출하지 않았으나 중요하다고 판단되는 새 주제를 최소 1개 이상 입력해 주세요. 각 주제에 "AI 예시"로 참고 문장을 생성할 수 있습니다.',
+  },
+  export: {
+    title: '최종 보고서',
+    body: '작성한 내용이 롯데웰푸드 양식의 보고서로 정리되었습니다. PDF 다운로드 또는 인쇄로 저장하세요.',
+  },
+};
 
 export default function App() {
   const [currentStep, setCurrentStep] = useState<Step>('dashboard');
@@ -78,6 +101,10 @@ export default function App() {
   const [derivedTopics, setDerivedTopics] = useState<DerivedTopic[]>([
     { id: 'topic-0', title: '', reason: '', expectedDirection: '', topicType: 'within' },
   ]);
+  /** 단계별 가이드 모달: 해당 단계 진입 시 표시, 확인 시 닫기 */
+  const [stepGuideFor, setStepGuideFor] = useState<Step | null>(null);
+  /** 주제 도출 AI 예시 로딩 중인 카드 id */
+  const [ideationExampleLoadingId, setIdeationExampleLoadingId] = useState<string | null>(null);
 
   const formatGuideText = (text: string) => {
     const t = String(text || "").trim();
@@ -128,6 +155,11 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [currentStep]);
+
+  /** 단계 진입 시 가이드 모달 표시 (접속 정보 모달이 닫혀 있을 때만) */
+  useEffect(() => {
+    if (!isProfileModalOpen) setStepGuideFor(currentStep);
+  }, [currentStep, isProfileModalOpen]);
 
   useEffect(() => {
     setDerivedTopics([{ id: 'topic-0', title: '', reason: '', expectedDirection: '', topicType: 'within' }]);
@@ -206,6 +238,10 @@ export default function App() {
       q5: entry.concretize.q5 || entry.concretize.q6 || '',
       q6: '',
     });
+    const topics = entry.derivedTopics && entry.derivedTopics.length > 0
+      ? entry.derivedTopics.map((t, i) => ({ ...t, id: t.id || `topic-${i}` }))
+      : [{ id: 'topic-0', title: '', reason: '', expectedDirection: '', topicType: 'within' as const }];
+    setDerivedTopics(topics);
     setCurrentStep('concretize');
     setIsWrittenModalOpen(false);
   };
@@ -229,6 +265,7 @@ export default function App() {
         q5: concretize.q5,
         q6: '',
       },
+      derivedTopics: derivedTopics.filter(t => t.title.trim()),
     });
     setSaveStatus(result.success ? 'saved' : 'error');
     setCurrentStep('export');
@@ -484,6 +521,25 @@ export default function App() {
         </div>
       )}
 
+      {stepGuideFor !== null && STEP_GUIDES[stepGuideFor] && (
+        <div className="fixed inset-0 z-[997] bg-black/50 flex items-center justify-center p-6">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-gray-100 p-8">
+            <h2 className="text-2xl font-black text-slate-900 mb-4">{STEP_GUIDES[stepGuideFor].title}</h2>
+            <p className="text-slate-600 text-sm font-medium leading-relaxed whitespace-pre-line mb-8">
+              {STEP_GUIDES[stepGuideFor].body}
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setStepGuideFor(null)}
+                className="px-6 py-3 rounded-2xl bg-[#ED1C24] text-white font-black"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isWrittenModalOpen && (
         <div className="fixed inset-0 z-[998] bg-black/50 flex items-center justify-center p-6">
           <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-gray-100 p-8">
@@ -557,11 +613,11 @@ export default function App() {
         <nav className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-2xl border border-gray-100">
           {(['dashboard', 'review', 'concretize', 'ideation', 'export'] as Step[]).map((step, idx) => {
             const stepLabels: Record<Step, string> = {
-              dashboard: 'Dashboard',
-              review: 'Review',
-              concretize: 'Concretize',
+              dashboard: '과제 선택',
+              review: '비전 리뷰',
+              concretize: '과제 구체화',
               ideation: '주제 도출',
-              export: 'Export',
+              export: '최종 보고서',
             };
             return (
               <button
@@ -983,8 +1039,39 @@ export default function App() {
                           </button>
                         )}
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                        <div className="md:col-span-2">
+                      <div className="space-y-6">
+                        {/* 1. 유형 선택 (버튼) */}
+                        <div>
+                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-3">유형 *</label>
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, topicType: 'within' as const } : t))}
+                              className={cn(
+                                "px-5 py-3 rounded-xl text-sm font-bold border-2 transition-all",
+                                topic.topicType === 'within'
+                                  ? "border-[#ED1C24] bg-red-50 text-[#ED1C24]"
+                                  : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              임원 도출 영역 내 추가 주제
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, topicType: 'new' as const } : t))}
+                              className={cn(
+                                "px-5 py-3 rounded-xl text-sm font-bold border-2 transition-all",
+                                topic.topicType === 'new'
+                                  ? "border-[#ED1C24] bg-red-50 text-[#ED1C24]"
+                                  : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                              )}
+                            >
+                              임원이 도출하지 않은 새 주제
+                            </button>
+                          </div>
+                        </div>
+                        {/* 2. 주제명 */}
+                        <div>
                           <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">주제명 (한 줄 요약) *</label>
                           <input
                             value={topic.title}
@@ -993,17 +1080,19 @@ export default function App() {
                             className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800"
                           />
                         </div>
-                        <div className="md:col-span-2">
-                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">이 주제를 도출한 이유 (앞선 과제와의 연관성 또는 중요도) *</label>
+                        {/* 3. 도출 이유 */}
+                        <div>
+                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">이 주제를 도출한 이유 (앞선 과제를 새로운 관점에서 접근하는 경우의 맥락 혹은 새로운 주제인 경우 중요도) *</label>
                           <textarea
                             value={topic.reason}
                             onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, reason: e.target.value } : t))}
-                            placeholder="예: 앞서 구체화한 ‘실적 데이터 정합성’ 과제와 연계되며, 동일 데이터 소스에서 활용 범위를 넓히는 주제입니다."
+                            placeholder="예: 앞서 구체화한 ‘실적 데이터 정합성’ 과제를 새로운 관점에서 확장한 주제입니다. / 본부 전략상 우선순위가 높으나 아직 임원 도출 목록에 없어 새로 제안합니다."
                             className="w-full min-h-[80px] p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800 resize-y"
                           />
                         </div>
-                        <div className="md:col-span-2">
-                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">AI 적용 시 기대하는 방향 *</label>
+                        {/* 4. AI 적용 시 기대 변화 */}
+                        <div>
+                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">AI 적용 시 업무가 어떻게 변화되기를 기대하십니까? *</label>
                           <textarea
                             value={topic.expectedDirection}
                             onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, expectedDirection: e.target.value } : t))}
@@ -1011,16 +1100,28 @@ export default function App() {
                             className="w-full min-h-[80px] p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800 resize-y"
                           />
                         </div>
-                        <div>
-                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">유형</label>
-                          <select
-                            value={topic.topicType}
-                            onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, topicType: e.target.value as 'within' | 'new' } : t))}
-                            className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800"
+                        {/* AI 예시 생성 */}
+                        <div className="pt-2 border-t border-slate-200">
+                          <button
+                            type="button"
+                            disabled={ideationExampleLoadingId === topic.id}
+                            onClick={async () => {
+                              if (!selectedTask) return;
+                              setIdeationExampleLoadingId(topic.id);
+                              try {
+                                const ex = await getIdeationExample(selectedTask, topic.topicType);
+                                setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, title: ex.title, reason: ex.reason, expectedDirection: ex.expectedDirection } : t));
+                              } catch (e) {
+                                console.error('Ideation example error:', e);
+                              } finally {
+                                setIdeationExampleLoadingId(null);
+                              }
+                            }}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 disabled:opacity-60 transition-all"
                           >
-                            <option value="within">임원 도출 영역 내 추가 주제</option>
-                            <option value="new">임원이 도출하지 않은 새 주제</option>
-                          </select>
+                            <Sparkles size={16} />
+                            {ideationExampleLoadingId === topic.id ? '예시 생성 중…' : 'AI 예시로 채우기'}
+                          </button>
                         </div>
                       </div>
                     </section>
@@ -1184,23 +1285,37 @@ export default function App() {
                   </section>
 
                   {derivedTopics.some(t => t.title.trim()) && (
-                    <section>
-                      <div className="flex items-center gap-3 bg-slate-900 text-white px-6 py-3 rounded-2xl mb-8 shadow-lg">
-                        <Lightbulb size={20} className="text-amber-400" />
-                        <span className="text-lg font-black uppercase tracking-tight">4. 추가 도출 주제</span>
+                    <section className="border-t-2 border-slate-100 pt-12">
+                      <div className="flex items-center gap-3 bg-amber-500/10 border-2 border-amber-200 text-amber-900 px-6 py-4 rounded-2xl mb-8">
+                        <Lightbulb size={24} className="text-amber-600 shrink-0" />
+                        <div>
+                          <h3 className="text-xl font-black tracking-tight">4. 추가 도출 주제</h3>
+                          <p className="text-sm font-medium text-amber-800/90 mt-0.5">임원 도출 영역 내 추가 주제 및 새로 도출한 주제</p>
+                        </div>
                       </div>
-                      <div className="space-y-6">
+                      <div className="space-y-8">
                         {derivedTopics.filter(t => t.title.trim()).map((topic, i) => (
-                          <div key={topic.id} className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                            <div className="flex items-center gap-2 mb-3">
-                              <span className="text-xs font-black text-slate-400 uppercase tracking-widest">주제 {i + 1}</span>
-                              <span className="text-xs font-bold text-slate-400">
-                                {topic.topicType === 'within' ? '· 임원 도출 영역 내' : '· 새 주제'}
+                          <div key={topic.id} className="rounded-2xl border-2 border-slate-200 bg-slate-50/80 overflow-hidden">
+                            <div className="px-6 py-3 bg-slate-100 border-b border-slate-200 flex items-center gap-3">
+                              <span className="text-sm font-black text-slate-600">주제 {i + 1}</span>
+                              <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-600">
+                                {topic.topicType === 'within' ? '임원 도출 영역 내' : '새 주제'}
                               </span>
                             </div>
-                            <h4 className="text-base font-black text-slate-800 mb-2">{topic.title}</h4>
-                            <p className="text-sm font-medium text-slate-600 leading-relaxed whitespace-pre-wrap mb-2">{topic.reason || '—'}</p>
-                            <p className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{topic.expectedDirection || '—'}</p>
+                            <div className="p-6 space-y-4">
+                              <div>
+                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">주제명</p>
+                                <p className="text-base font-black text-slate-800 leading-relaxed">{topic.title}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">도출 이유</p>
+                                <p className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{topic.reason || '—'}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">AI 적용 시 기대 변화</p>
+                                <p className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{topic.expectedDirection || '—'}</p>
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>

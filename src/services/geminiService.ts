@@ -123,3 +123,46 @@ q5: 구현 과정에서 구현자가 반드시 고려해야 할 사항은 무엇
 
   return JSON.parse(response.text || "{}") as { q1?: string; q2?: string; q3?: string; q4?: string; q5?: string };
 }
+
+/** 주제 도출 단계: 유형에 맞는 예시 문장 생성 (주제명, 도출 이유, AI 적용 시 기대 변화) */
+export async function getIdeationExample(
+  task: ExecutiveTask,
+  topicType: "within" | "new"
+): Promise<{ title: string; reason: string; expectedDirection: string }> {
+  const typeLabel = topicType === "within" ? "임원이 도출한 영역 내에서 파생된 추가 주제" : "임원이 도출하지 않았으나 중요도가 높은 새 주제";
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `
+당신은 롯데웰푸드 AX 전략 보조입니다. 팀장이 "추가 주제 도출" 단계에서 참고할 예시 문장을 생성해 주세요.
+
+[현재 과제 맥락]
+- 과제(희망 영역): ${task.expectedArea}
+- 본부: ${task.department}
+- 한줄요약: ${task.oneLineSummary}
+- 기대 이유: ${task.reason?.slice(0, 300)}
+- 기대 변화: ${task.expectedChange?.slice(0, 300)}
+
+생성할 주제 유형: ${typeLabel}
+
+다음 3가지 필드에 들어갈 한국어 예시 문장을 각각 한 문단 이내로 작성해 주세요. 실무에 바로 참고할 수 있도록 구체적으로 작성합니다.
+`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          reason: { type: Type.STRING },
+          expectedDirection: { type: Type.STRING },
+        },
+      },
+    },
+  });
+
+  const parsed = JSON.parse(response.text || "{}") as { title?: string; reason?: string; expectedDirection?: string };
+  return {
+    title: String(parsed.title ?? "").trim() || "예시를 불러오지 못했습니다.",
+    reason: String(parsed.reason ?? "").trim() || "",
+    expectedDirection: String(parsed.expectedDirection ?? "").trim() || "",
+  };
+}

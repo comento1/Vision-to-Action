@@ -1,4 +1,4 @@
-import { ExecutiveTask } from "../types";
+import { ExecutiveTask, DerivedTopic } from "../types";
 import { MOCK_TASKS } from "../constants";
 
 const SHEET_API_URL = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_SHEET_API_URL
@@ -26,6 +26,8 @@ export interface SaveWrittenContentPayload {
     q5: string;
     q6: string;
   };
+  /** 추가 도출 주제 (주제 도출 단계에서 입력) */
+  derivedTopics?: DerivedTopic[];
 }
 
 export interface WrittenEntry {
@@ -47,6 +49,8 @@ export interface WrittenEntry {
     q5: string;
     q6: string;
   };
+  /** 추가 도출 주제 (주제 도출 단계, 시트의 추가도출주제_JSON 컬럼) */
+  derivedTopics?: DerivedTopic[];
 }
 
 function ensureTaskArray(data: unknown): ExecutiveTask[] {
