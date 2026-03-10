@@ -4,6 +4,19 @@ import { ExecutiveTask, ProjectDefinition } from "../types";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 export async function getAiCoaching(task: ExecutiveTask, currentStep: string, userInput: string) {
+  const isIdeation = currentStep === "ideation";
+  const stepInstruction = isIdeation
+    ? `현재 단계는 "주제 도출(아이디에이션)"입니다. 팀장이 앞선 과제(리뷰·구체화) 경험을 바탕으로, 추가로 도출할 수 있는 주제를 찾고 있습니다.
+      - "임원 도출 영역 내 추가 주제" 또는 "임원이 도출하지 않았으나 중요도가 높은 새 주제"를 함께 아이디에이션해 주세요.
+      - 팀장의 질문(예: 어떤 주제들이 도출될 수 있을까요?)에 맞춰 구체적인 주제 제안, 도출 이유·기대 방향 예시를 제시하세요.
+      - 제안한 주제는 왼쪽 폼에 직접 채워 넣을 수 있도록 한 줄 요약·이유·기대 변화 형태로 써 주세요.`
+    : `다음 가이드라인에 따라 팀장에게 실무적이고 구체적인 피드백과 추천을 제공하세요:
+      1. "Pragmatic Brilliance" 톤앤매너를 유지하세요 (전문적, 신뢰감, 실행 중심, 공감).
+      2. 제공된 상세 데이터와 해석 내용을 바탕으로 맥락에 맞는 조언을 하세요.
+      3. 정량적 지표(KPI)를 설정할 때 구체적인 수치 예시를 제안하세요.
+      4. MVP 범위를 좁히는 현실적인 제안을 하세요.
+      5. 위트 있는 리더십 메시지를 포함하세요.`;
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `
@@ -26,12 +39,7 @@ export async function getAiCoaching(task: ExecutiveTask, currentStep: string, us
       현재 단계: ${currentStep}
       팀장의 입력: ${userInput}
       
-      다음 가이드라인에 따라 팀장에게 실무적이고 구체적인 피드백과 추천을 제공하세요:
-      1. "Pragmatic Brilliance" 톤앤매너를 유지하세요 (전문적, 신뢰감, 실행 중심, 공감).
-      2. 제공된 상세 데이터와 해석 내용을 바탕으로 맥락에 맞는 조언을 하세요.
-      3. 정량적 지표(KPI)를 설정할 때 구체적인 수치 예시를 제안하세요.
-      4. MVP 범위를 좁히는 현실적인 제안을 하세요.
-      5. 위트 있는 리더십 메시지를 포함하세요.
+      ${stepInstruction}
       
       응답은 마크다운 형식으로 작성하세요.
     `,

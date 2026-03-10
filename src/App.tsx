@@ -26,7 +26,7 @@ import { MOCK_TASKS } from './constants';
 import { ExecutiveTask, ProjectDefinition, Department, ConcretizeForm, DerivedTopic } from './types';
 import { cn, bulletToNumbered } from './lib/utils';
 import Markdown from 'react-markdown';
-import { getAiCoaching, suggestKpis, getConcretizeGuides, getIdeationExample } from './services/geminiService';
+import { getAiCoaching, suggestKpis, getConcretizeGuides } from './services/geminiService';
 import { fetchTasks, saveWrittenContent, fetchWrittenContents, toUserKey, type UserProfile, type WrittenEntry } from './services/sheetService';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -50,7 +50,7 @@ const STEP_GUIDES: Record<Step, { title: string; body: string }> = {
   },
   ideation: {
     title: '주제 도출',
-    body: '리뷰·구체화한 경험을 바탕으로, 임원 도출 영역 내 추가 주제 또는 임원이 도출하지 않았으나 중요하다고 판단되는 새 주제를 최소 1개 이상 입력해 주세요. 각 주제에 "AI 예시"로 참고 문장을 생성할 수 있습니다.',
+    body: '리뷰·구체화한 경험을 바탕으로, 임원 도출 영역 내 추가 주제 또는 임원이 도출하지 않았으나 중요하다고 판단되는 새 주제를 최소 1개 이상 입력해 주세요. 오른쪽 사이드바에서 "어떤 주제들이 도출될 수 있을까요?" 등으로 AI와 대화하며 아이디에이션할 수 있습니다.',
   },
   export: {
     title: '최종 보고서',
@@ -103,8 +103,9 @@ export default function App() {
   ]);
   /** 단계별 가이드 모달: 해당 단계 진입 시 표시, 확인 시 닫기 */
   const [stepGuideFor, setStepGuideFor] = useState<Step | null>(null);
-  /** 주제 도출 AI 예시 로딩 중인 카드 id */
-  const [ideationExampleLoadingId, setIdeationExampleLoadingId] = useState<string | null>(null);
+  /** 주제 도출 단계: AI 아이디에이션 대화 입력/응답 */
+  const [ideationChatInput, setIdeationChatInput] = useState('');
+  const [ideationChatReply, setIdeationChatReply] = useState('');
 
   const formatGuideText = (text: string) => {
     const t = String(text || "").trim();
@@ -523,15 +524,20 @@ export default function App() {
 
       {stepGuideFor !== null && STEP_GUIDES[stepGuideFor] && (
         <div className="fixed inset-0 z-[997] bg-black/50 flex items-center justify-center p-6">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-gray-100 p-8">
-            <h2 className="text-2xl font-black text-slate-900 mb-4">{STEP_GUIDES[stepGuideFor].title}</h2>
-            <p className="text-slate-600 text-sm font-medium leading-relaxed whitespace-pre-line mb-8">
-              {STEP_GUIDES[stepGuideFor].body}
-            </p>
-            <div className="flex justify-end">
+          <div className="w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl border border-gray-100 overflow-hidden">
+            <div className="bg-gradient-to-br from-slate-50 to-red-50/30 px-10 pt-10 pb-6 border-b border-slate-100">
+              <h2 className="text-2xl md:text-3xl font-black text-slate-900 mb-1">{STEP_GUIDES[stepGuideFor].title}</h2>
+              <p className="text-slate-500 font-bold text-sm mt-1">이 단계에서 할 일을 확인한 뒤 시작하세요.</p>
+            </div>
+            <div className="p-10">
+              <p className="text-slate-700 text-base md:text-lg font-medium leading-relaxed whitespace-pre-line">
+                {STEP_GUIDES[stepGuideFor].body}
+              </p>
+            </div>
+            <div className="px-10 pb-10 flex justify-end">
               <button
                 onClick={() => setStepGuideFor(null)}
-                className="px-6 py-3 rounded-2xl bg-[#ED1C24] text-white font-black"
+                className="px-8 py-4 rounded-2xl bg-[#ED1C24] text-white font-black text-base"
               >
                 확인
               </button>
@@ -1003,164 +1009,160 @@ export default function App() {
               initial={{ opacity: 0, x: 30 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -30 }}
-              className="space-y-10"
+              className="grid grid-cols-1 lg:grid-cols-3 gap-10"
             >
-              <div className="bg-white rounded-[3rem] p-12 shadow-xl shadow-slate-200/50 border border-gray-100">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-16 h-16 bg-amber-50 rounded-3xl flex items-center justify-center text-amber-600 shadow-inner">
-                    <Lightbulb size={32} />
+              <div className="lg:col-span-2 space-y-10">
+                <div className="bg-white rounded-[3rem] p-12 shadow-xl shadow-slate-200/50 border border-gray-100">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="w-16 h-16 bg-amber-50 rounded-3xl flex items-center justify-center text-amber-600 shadow-inner">
+                      <Lightbulb size={32} />
+                    </div>
+                    <div>
+                      <h2 className="text-4xl font-black tracking-tighter text-slate-900">추가 주제 도출</h2>
+                      <p className="text-slate-500 font-bold text-sm mt-2 leading-relaxed max-w-3xl">
+                        임원진이 도출한 영역을 리뷰·구체화한 경험을 바탕으로, 추가로 도출하고 싶은 주제를 적어 주세요.
+                        <br />
+                        <span className="text-slate-600">임원 도출 영역 내 추가 주제</span> 또는 <span className="text-slate-600">임원이 도출하지 않았으나 중요도가 높다고 판단되는 새 주제</span>를 최소 1개 이상 입력해 주세요.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-4xl font-black tracking-tighter text-slate-900">추가 주제 도출</h2>
-                    <p className="text-slate-500 font-bold text-sm mt-2 leading-relaxed max-w-3xl">
-                      임원진이 도출한 영역을 리뷰·구체화한 경험을 바탕으로, 추가로 도출하고 싶은 주제를 적어 주세요.
-                      <br />
-                      <span className="text-slate-600">임원 도출 영역 내 추가 주제</span> 또는 <span className="text-slate-600">임원이 도출하지 않았으나 중요도가 높다고 판단되는 새 주제</span>를 최소 1개 이상 입력해 주세요.
-                    </p>
-                  </div>
-                </div>
 
-                <div className="space-y-8">
-                  {derivedTopics.map((topic, idx) => (
-                    <section
-                      key={topic.id}
-                      className="rounded-[2rem] border-2 border-slate-200 bg-slate-50/40 p-6 md:p-8 relative"
-                    >
-                      <div className="flex items-center justify-between mb-6">
-                        <span className="text-sm font-black text-slate-500 uppercase tracking-widest">주제 #{idx + 1}</span>
-                        {derivedTopics.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => setDerivedTopics(prev => prev.filter(t => t.id !== topic.id))}
-                            className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
-                            title="이 주제 삭제"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
-                      </div>
-                      <div className="space-y-6">
-                        {/* 1. 유형 선택 (버튼) */}
-                        <div>
-                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-3">유형 *</label>
-                          <div className="flex flex-wrap gap-3">
+                  <div className="space-y-8">
+                    {derivedTopics.map((topic, idx) => (
+                      <section
+                        key={topic.id}
+                        className="rounded-[2rem] border-2 border-slate-200 bg-slate-50/40 p-6 md:p-8 relative"
+                      >
+                        <div className="flex items-center justify-between mb-6">
+                          <span className="text-sm font-black text-slate-500 uppercase tracking-widest">주제 #{idx + 1}</span>
+                          {derivedTopics.length > 1 && (
                             <button
                               type="button"
-                              onClick={() => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, topicType: 'within' as const } : t))}
-                              className={cn(
-                                "px-5 py-3 rounded-xl text-sm font-bold border-2 transition-all",
-                                topic.topicType === 'within'
-                                  ? "border-[#ED1C24] bg-red-50 text-[#ED1C24]"
-                                  : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
-                              )}
+                              onClick={() => setDerivedTopics(prev => prev.filter(t => t.id !== topic.id))}
+                              className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                              title="이 주제 삭제"
                             >
-                              임원 도출 영역 내 추가 주제
+                              <Trash2 size={18} />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, topicType: 'new' as const } : t))}
-                              className={cn(
-                                "px-5 py-3 rounded-xl text-sm font-bold border-2 transition-all",
-                                topic.topicType === 'new'
-                                  ? "border-[#ED1C24] bg-red-50 text-[#ED1C24]"
-                                  : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
-                              )}
-                            >
-                              임원이 도출하지 않은 새 주제
-                            </button>
+                          )}
+                        </div>
+                        <div className="space-y-6">
+                          <div>
+                            <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-3">유형 *</label>
+                            <div className="flex flex-wrap gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, topicType: 'within' as const } : t))}
+                                className={cn(
+                                  "px-5 py-3 rounded-xl text-sm font-bold border-2 transition-all",
+                                  topic.topicType === 'within' ? "border-[#ED1C24] bg-red-50 text-[#ED1C24]" : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                                )}
+                              >
+                                임원 도출 영역 내 추가 주제
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, topicType: 'new' as const } : t))}
+                                className={cn(
+                                  "px-5 py-3 rounded-xl text-sm font-bold border-2 transition-all",
+                                  topic.topicType === 'new' ? "border-[#ED1C24] bg-red-50 text-[#ED1C24]" : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                                )}
+                              >
+                                임원이 도출하지 않은 새 주제
+                              </button>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">주제명 (한 줄 요약) *</label>
+                            <input
+                              value={topic.title}
+                              onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, title: e.target.value } : t))}
+                              placeholder="예: 해외법인 실적 데이터 자동 수집 및 대시보드 연동"
+                              className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">이 주제를 도출한 이유 (앞선 과제를 새로운 관점에서 접근하는 경우의 맥락 혹은 새로운 주제인 경우 중요도) *</label>
+                            <textarea
+                              value={topic.reason}
+                              onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, reason: e.target.value } : t))}
+                              placeholder="예: 앞서 구체화한 ‘실적 데이터 정합성’ 과제를 새로운 관점에서 확장한 주제입니다. / 본부 전략상 우선순위가 높으나 아직 임원 도출 목록에 없어 새로 제안합니다."
+                              className="w-full min-h-[80px] p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800 resize-y"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">AI 적용 시 업무가 어떻게 변화되기를 기대하십니까? *</label>
+                            <textarea
+                              value={topic.expectedDirection}
+                              onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, expectedDirection: e.target.value } : t))}
+                              placeholder="예: 수작업 엑셀 정리 대신 API/스케줄 기반 자동 수집 후 대시보드에 반영되어 의사결정 속도가 빨라지는 것."
+                              className="w-full min-h-[80px] p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800 resize-y"
+                            />
                           </div>
                         </div>
-                        {/* 2. 주제명 */}
-                        <div>
-                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">주제명 (한 줄 요약) *</label>
-                          <input
-                            value={topic.title}
-                            onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, title: e.target.value } : t))}
-                            placeholder="예: 해외법인 실적 데이터 자동 수집 및 대시보드 연동"
-                            className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800"
-                          />
-                        </div>
-                        {/* 3. 도출 이유 */}
-                        <div>
-                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">이 주제를 도출한 이유 (앞선 과제를 새로운 관점에서 접근하는 경우의 맥락 혹은 새로운 주제인 경우 중요도) *</label>
-                          <textarea
-                            value={topic.reason}
-                            onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, reason: e.target.value } : t))}
-                            placeholder="예: 앞서 구체화한 ‘실적 데이터 정합성’ 과제를 새로운 관점에서 확장한 주제입니다. / 본부 전략상 우선순위가 높으나 아직 임원 도출 목록에 없어 새로 제안합니다."
-                            className="w-full min-h-[80px] p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800 resize-y"
-                          />
-                        </div>
-                        {/* 4. AI 적용 시 기대 변화 */}
-                        <div>
-                          <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">AI 적용 시 업무가 어떻게 변화되기를 기대하십니까? *</label>
-                          <textarea
-                            value={topic.expectedDirection}
-                            onChange={e => setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, expectedDirection: e.target.value } : t))}
-                            placeholder="예: 수작업 엑셀 정리 대신 API/스케줄 기반 자동 수집 후 대시보드에 반영되어 의사결정 속도가 빨라지는 것."
-                            className="w-full min-h-[80px] p-4 rounded-xl border-2 border-slate-200 focus:border-[#ED1C24] outline-none font-medium text-slate-800 resize-y"
-                          />
-                        </div>
-                        {/* AI 예시 생성 */}
-                        <div className="pt-2 border-t border-slate-200">
-                          <button
-                            type="button"
-                            disabled={ideationExampleLoadingId === topic.id}
-                            onClick={async () => {
-                              if (!selectedTask) return;
-                              setIdeationExampleLoadingId(topic.id);
-                              try {
-                                const ex = await getIdeationExample(selectedTask, topic.topicType);
-                                setDerivedTopics(prev => prev.map(t => t.id === topic.id ? { ...t, title: ex.title, reason: ex.reason, expectedDirection: ex.expectedDirection } : t));
-                              } catch (e) {
-                                console.error('Ideation example error:', e);
-                              } finally {
-                                setIdeationExampleLoadingId(null);
-                              }
-                            }}
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 disabled:opacity-60 transition-all"
-                          >
-                            <Sparkles size={16} />
-                            {ideationExampleLoadingId === topic.id ? '예시 생성 중…' : 'AI 예시로 채우기'}
-                          </button>
-                        </div>
-                      </div>
-                    </section>
-                  ))}
+                      </section>
+                    ))}
 
+                    <button
+                      type="button"
+                      onClick={() => setDerivedTopics(prev => [...prev, { id: `topic-${Date.now()}`, title: '', reason: '', expectedDirection: '', topicType: 'within' }])}
+                      className="w-full py-4 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 font-bold flex items-center justify-center gap-2 hover:border-[#ED1C24] hover:text-[#ED1C24] hover:bg-red-50/30 transition-all"
+                    >
+                      <Plus size={20} /> 주제 추가
+                    </button>
+                  </div>
+
+                  <div className="mt-14 flex justify-between items-center">
+                    <button onClick={() => setCurrentStep('concretize')} className="px-6 py-3 text-slate-500 font-bold rounded-xl hover:bg-slate-100 transition-all">이전</button>
+                    <button
+                      onClick={handleGoToExport}
+                      disabled={!derivedTopics.some(t => t.title.trim().length > 0)}
+                      className={cn(
+                        "px-10 py-5 rounded-2xl font-black text-lg flex items-center gap-3 transition-all shadow-xl",
+                        derivedTopics.some(t => t.title.trim().length > 0) ? "bg-[#ED1C24] text-white hover:bg-[#D11920] hover:scale-105 active:scale-95 shadow-red-500/20" : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      )}
+                    >
+                      최종 보고서 확인하기 <ChevronRight size={24} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                <div className="bg-slate-900 text-white rounded-[2.5rem] p-8 sticky top-32">
+                  <h3 className="text-lg font-black mb-2 flex items-center gap-2 text-amber-400"><Lightbulb size={20} /> 어떤 주제들이 도출될 수 있을까요?</h3>
+                  <p className="text-slate-300 text-xs font-medium mb-4">현재 과제 맥락을 바탕으로 AI와 대화하며 아이디에이션해 보세요. 예: &quot;이 영역에서 추가로 도출할 만한 주제를 3가지 제안해 주세요.&quot;</p>
+                  <textarea
+                    value={ideationChatInput}
+                    onChange={e => setIdeationChatInput(e.target.value)}
+                    placeholder="질문이나 아이디어를 입력하세요."
+                    className="w-full min-h-[80px] p-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y"
+                  />
                   <button
                     type="button"
-                    onClick={() => setDerivedTopics(prev => [...prev, {
-                      id: `topic-${Date.now()}`,
-                      title: '',
-                      reason: '',
-                      expectedDirection: '',
-                      topicType: 'within',
-                    }])}
-                    className="w-full py-4 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 font-bold flex items-center justify-center gap-2 hover:border-[#ED1C24] hover:text-[#ED1C24] hover:bg-red-50/30 transition-all"
+                    onClick={async () => {
+                      if (!ideationChatInput.trim() || !selectedTask) return;
+                      setIsAiLoading(true);
+                      setIdeationChatReply('');
+                      try {
+                        const reply = await getAiCoaching(selectedTask, 'ideation', ideationChatInput);
+                        setIdeationChatReply(reply || '');
+                      } catch (e) {
+                        setIdeationChatReply('응답을 불러오지 못했습니다. 다시 시도해 주세요.');
+                      } finally {
+                        setIsAiLoading(false);
+                      }
+                    }}
+                    disabled={isAiLoading || !ideationChatInput.trim()}
+                    className="w-full py-2.5 rounded-xl bg-amber-500 text-white text-sm font-black disabled:opacity-50 mt-2"
                   >
-                    <Plus size={20} /> 주제 추가
+                    {isAiLoading ? '생성 중…' : 'AI에게 질문하기'}
                   </button>
-                </div>
-
-                <div className="mt-14 flex justify-between items-center">
-                  <button
-                    onClick={() => setCurrentStep('concretize')}
-                    className="px-6 py-3 text-slate-500 font-bold rounded-xl hover:bg-slate-100 transition-all"
-                  >
-                    이전
-                  </button>
-                  <button
-                    onClick={handleGoToExport}
-                    disabled={!derivedTopics.some(t => t.title.trim().length > 0)}
-                    className={cn(
-                      "px-10 py-5 rounded-2xl font-black text-lg flex items-center gap-3 transition-all shadow-xl",
-                      derivedTopics.some(t => t.title.trim().length > 0)
-                        ? "bg-[#ED1C24] text-white hover:bg-[#D11920] hover:scale-105 active:scale-95 shadow-red-500/20"
-                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
-                    )}
-                  >
-                    최종 보고서 확인하기 <ChevronRight size={24} />
-                  </button>
+                  {ideationChatReply ? (
+                    <div className="mt-4 p-4 rounded-xl bg-white/10 border border-white/20 text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
+                      <Markdown>{ideationChatReply}</Markdown>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </motion.div>
